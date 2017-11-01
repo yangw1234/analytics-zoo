@@ -9,11 +9,11 @@
 1. download maven
 1. Build code with maven
    1. go to directory analytics-zoo/apps/policyGradient/
-   1. type "mvn clean package" in terminal
+   1. type command in terminal: ```mvn clean package```
 1. you'll find 2 jars and 1 zip file under analytics-zoo/apps/policyGradient/target
-   * rl-0.1-SNAPSHOT.jar
-   * rl-0.1-SNAPSHOT-jar-with-dependencies.jar
-   * rl-0.1-SNAPSHOT-python-api.zip
+   * ```rl-0.1-SNAPSHOT.jar```
+   * ```rl-0.1-SNAPSHOT-jar-with-dependencies.jar```
+   * ```rl-0.1-SNAPSHOT-python-api.zip```
 
 
 ## Use with Pyspark + Jupyter
@@ -41,7 +41,7 @@ ${SPARK_HOME}/bin/pyspark \
        --py-files ${PYTHON_API_ZIP_PATH},${RLlib_PYTHON_API_ZIP_PATH} \
        --jars ${BigDL_JAR_PATH},${RLlib_JAR_PATH} \
        --conf spark.driver.extraClassPath=${BigDL_JAR_PATH}:${RLlib_JAR_PATH} \
-       --conf spark.executor.extraClassPath=${BigDL_HOME}/dist/lib/${BigDL_lib}-jar-with-         dependencies.jar:${RLlib_JAR_PATH}
+       --conf spark.executor.extraClassPath=${BigDL_HOME}/dist/lib/${BigDL_lib}-jar-with-dependencies.jar:${RLlib_JAR_PATH}
 
 ```
  
