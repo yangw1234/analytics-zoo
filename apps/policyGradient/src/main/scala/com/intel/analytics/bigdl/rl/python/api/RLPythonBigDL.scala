@@ -54,11 +54,9 @@ class RLPythonBigDL[T: ClassTag](implicit ev: TensorNumeric[T]) extends PythonBi
      new RLPythonBigDL[T]()
    }
 
-   def createVanillaPGCriterion(weights: JTensor = null,
-     sizeAverage: Boolean = true)
+   def createVanillaPGCriterion(sizeAverage: Boolean = true)
    : VanillaPGCriterion[T] = {
-     VanillaPGCriterion[T](if (weights == null) null else toTensor(weights),
-       sizeAverage)
+     VanillaPGCriterion[T](sizeAverage)
    }
 
 }
