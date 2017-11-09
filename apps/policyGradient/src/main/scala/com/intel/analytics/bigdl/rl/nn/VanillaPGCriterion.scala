@@ -27,9 +27,9 @@ import com.intel.analytics.bigdl.utils.Engine
 
 /**
  * VanillaPGCriterion
- * forward returns 0
- * for backward, target contains 2 values, action and reward. 
- * gradient = (action-prob)*reward
+ * forward is trival so returns input
+ * target contains 2 values, action and reward. 
+ * gradient = (-1)*(action-prob)*reward
  * use together with sigmoid
  *
  * @param sizeAverage size average of batch
@@ -38,21 +38,47 @@ import com.intel.analytics.bigdl.utils.Engine
  */
 
 class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
-(sizeAverage: Boolean = false)
+(sizeAverage: Boolean = true)
   (implicit ev: TensorNumeric[T]) extends TensorCriterion[T] {
 
+
   override def updateOutput(input: Tensor[T], target: Tensor[T]): T = {
-    //forward is trival here  
+    /* 
+    require(input.dim() == 1 || input.dim() == 2,
+      "VanillaPGCriterion: " +
+        ErrorInfo.constrainInputAsVectorOrBatch +
+          s"input dim ${input.dim()}")
+    
+    if (input.dim() == 1){
+      val targetSize = target.size()
+      target.squeeze()
+      require(target.dim()==1,s"target dimension should be 1, but is: ${target.dim()}")
+
+      output = ev.minus(target.valueAt(1),input.valueAt(1))
+    } 
+    else if (input.dim() == 2) {
+      require(target.dim()==2,s"target dimension should be 2 (with batch dimension, but target dimension is: ${target.dim()}")
+      require(target.nElement() == 2*input.size(1),s"target should contain exactly 2*inputSize elements,but has: ${target.nElement()} elements")
+
+      val action = target.select(2, 1).contiguous()
+      if(sizeAverage) {
+        output = (action-input).mean()
+      } else {
+        output = (action-input).sum()
+      }
+    }*/
     output = ev.zero
+
     output
   }
 
+  
   override def updateGradInput(input: Tensor[T], target: Tensor[T]): Tensor[T] = {
 
     require(input.dim() == 1 || input.dim() == 2,
       "VanillaPGCriterion: " +
-              ErrorInfo.constrainInputAsVectorOrBatch +
-                      s"input dim ${input.dim()}")
+        ErrorInfo.constrainInputAsVectorOrBatch +
+          s"input dim ${input.dim()}")
 
     gradInput.resizeAs(input)
     gradInput.zero()
@@ -64,29 +90,27 @@ class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
       require(target.dim()==1,s"target dimension should be 1, but is: ${target.dim()}")
       gradInput.setValue(1, 
           ev.times(
-            ev.minus(target.valueAt(1),input.valueAt(1)), 
+            ev.minus(input.valueAt(1),target.valueAt(1)), 
             target.valueAt(2)))
     }
     //if a minibatch 
     else if (input.dim() == 2) {
       //TODO, need to support table as target or more than 1 dim.  
       require(target.dim()==2,s"target dimension should be 2 (with batch dimension, but target dimension is: ${target.dim()}")
-      val batchSize = input.size(1)
-      //require(target.nElement() == batchSize*2,s"target should contain at least 2 ")
+      require(target.nElement() == 2*input.size(1),s"target should contain exactly 2*inputSize elements,but has: ${target.nElement()} elements")
       
       //tensor version
       val action = target.select(2, 1).contiguous()
-      val reward = target.select(2, 2).contiguous()                    
-      gradInput.add(action, ev.negative(ev.one), input)
+      val reward = target.select(2, 2).contiguous()   
+     
+      // formula is (-1)*(action-prob)*reward
+      // multiply -1 since we need to maximize the reward.
+      gradInput.add(input, ev.negative(ev.one), action)
       gradInput.cmul(reward) 
 
-      //var _i=1
-      //while (_i <= batchSize) {
-      //  gradInput.setValue(_i, ev.times(ev.minus(target.valueAt(_i, 1),
-      //         input.valueAt(_i, 1)), target.valueAt(_i, 2))) 
-
-       //_i += 1
-      //}
+      if (sizeAverage) { 
+        gradInput.div(ev.fromType[Int](gradInput.nElement()))
+      }
     }
   
     gradInput
@@ -97,7 +121,7 @@ class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
 
 object VanillaPGCriterion {
   def apply[@specialized(Float, Double) T: ClassTag](
-    sizeAverage: Boolean = false)(implicit ev: TensorNumeric[T]) : VanillaPGCriterion[T] = {
+    sizeAverage: Boolean = true)(implicit ev: TensorNumeric[T]) : VanillaPGCriterion[T] = {
     new VanillaPGCriterion[T](sizeAverage)
   }
 }
