@@ -27,8 +27,8 @@ import com.intel.analytics.bigdl.utils.Engine
 
 /**
  * VanillaPGCriterion
- * forward is trival so returns input
- * target contains 2 values, action and reward. 
+ * forward returns 0
+ * for backward, target contains 2 values, action and reward. 
  * gradient = (-1)*(action-prob)*reward
  * use together with sigmoid
  *
@@ -41,44 +41,18 @@ class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
 (sizeAverage: Boolean = true)
   (implicit ev: TensorNumeric[T]) extends TensorCriterion[T] {
 
-
   override def updateOutput(input: Tensor[T], target: Tensor[T]): T = {
-    /* 
-    require(input.dim() == 1 || input.dim() == 2,
-      "VanillaPGCriterion: " +
-        ErrorInfo.constrainInputAsVectorOrBatch +
-          s"input dim ${input.dim()}")
-    
-    if (input.dim() == 1){
-      val targetSize = target.size()
-      target.squeeze()
-      require(target.dim()==1,s"target dimension should be 1, but is: ${target.dim()}")
-
-      output = ev.minus(target.valueAt(1),input.valueAt(1))
-    } 
-    else if (input.dim() == 2) {
-      require(target.dim()==2,s"target dimension should be 2 (with batch dimension, but target dimension is: ${target.dim()}")
-      require(target.nElement() == 2*input.size(1),s"target should contain exactly 2*inputSize elements,but has: ${target.nElement()} elements")
-
-      val action = target.select(2, 1).contiguous()
-      if(sizeAverage) {
-        output = (action-input).mean()
-      } else {
-        output = (action-input).sum()
-      }
-    }*/
+    //forward is trival here  
     output = ev.zero
-
     output
   }
 
-  
   override def updateGradInput(input: Tensor[T], target: Tensor[T]): Tensor[T] = {
 
     require(input.dim() == 1 || input.dim() == 2,
       "VanillaPGCriterion: " +
-        ErrorInfo.constrainInputAsVectorOrBatch +
-          s"input dim ${input.dim()}")
+              ErrorInfo.constrainInputAsVectorOrBatch +
+                      s"input dim ${input.dim()}")
 
     gradInput.resizeAs(input)
     gradInput.zero()
@@ -97,18 +71,16 @@ class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
     else if (input.dim() == 2) {
       //TODO, need to support table as target or more than 1 dim.  
       require(target.dim()==2,s"target dimension should be 2 (with batch dimension, but target dimension is: ${target.dim()}")
-      require(target.nElement() == 2*input.size(1),s"target should contain exactly 2*inputSize elements,but has: ${target.nElement()} elements")
+      //val batchSize = input.size(1)
+      require(target.nElement() == 2*input.size(1),s"target should contain 2*inputsize of elements, but is:${target.nElement()}")
       
-      //tensor version
+      //formula is (-1)*(action-prob)*reward
       val action = target.select(2, 1).contiguous()
-      val reward = target.select(2, 2).contiguous()   
-     
-      // formula is (-1)*(action-prob)*reward
-      // multiply -1 since we need to maximize the reward.
+      val reward = target.select(2, 2).contiguous()                    
       gradInput.add(input, ev.negative(ev.one), action)
       gradInput.cmul(reward) 
 
-      if (sizeAverage) { 
+      if (sizeAverage) {
         gradInput.div(ev.fromType[Int](gradInput.nElement()))
       }
     }
