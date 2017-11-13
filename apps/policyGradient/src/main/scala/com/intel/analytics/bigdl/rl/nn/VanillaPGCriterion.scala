@@ -17,8 +17,8 @@
 package com.intel.analytics.bigdl.nn
 
 import com.intel.analytics.bigdl.nn.abstractnn.TensorCriterion
-import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.tensor.Tensor
+import com.intel.analytics.bigdl.tensor.TensorNumericMath._
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
@@ -38,8 +38,7 @@ import com.intel.analytics.bigdl.utils.Engine
  */
 
 class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
-(sizeAverage: Boolean = true)
-  (implicit ev: TensorNumeric[T]) extends TensorCriterion[T] {
+(clipping:Boolean=false, clippingRange: Float = 0.2f, sizeAverage: Boolean = true) (implicit ev: TensorNumeric[T]) extends TensorCriterion[T] {
 
   override def updateOutput(input: Tensor[T], target: Tensor[T]): T = {
     //forward is trival here  
@@ -78,6 +77,18 @@ class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
       val action = target.select(2, 1).contiguous()
       val reward = target.select(2, 2).contiguous()                    
       gradInput.add(input, ev.negative(ev.one), action)
+      //if do clip
+      if (clipping) {
+        val cRange = ev.fromType[Float](clippingRange)
+        //clip each value in the tensor to [-clippingRange,clippingRange]
+        // equals to: max((-1)*clippingRange, min(clippingRange, x))
+        //TODO implement min in TensorNumeric
+        gradInput.apply1(x => 
+          ev.max(ev.negative(cRange),
+            if (ev.isGreaterEq(x, cRange)) cRange
+              else x)
+        )
+      }
       gradInput.cmul(reward) 
 
       if (sizeAverage) {
@@ -93,7 +104,7 @@ class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
 
 object VanillaPGCriterion {
   def apply[@specialized(Float, Double) T: ClassTag](
-    sizeAverage: Boolean = true)(implicit ev: TensorNumeric[T]) : VanillaPGCriterion[T] = {
-    new VanillaPGCriterion[T](sizeAverage)
+ clipping:Boolean=false, clippingRange: Float=0.2f, sizeAverage: Boolean = true)(implicit ev: TensorNumeric[T]) : VanillaPGCriterion[T] = {
+    new VanillaPGCriterion[T](clipping, clippingRange, sizeAverage)
   }
 }
