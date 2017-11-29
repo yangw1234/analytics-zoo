@@ -16,3 +16,17 @@ class VanillaPGCriterion(Criterion):
                                                 clipping, 
                                                 clipping_range, 
                                                 size_average)
+
+class PGCriterion(Criterion):
+
+    def __init__(self,
+                 is_clip = False,
+                 clip_pos = 1.2,
+                 clip_neg = 0.8,
+                 size_average=True,
+                 bigdl_type="float"):
+        super(PGCriterion, self).__init__(None,bigdl_type,
+                                                 is_clip,
+                                                 clip_pos,
+                                                 clip_neg,
+                                                 size_average)

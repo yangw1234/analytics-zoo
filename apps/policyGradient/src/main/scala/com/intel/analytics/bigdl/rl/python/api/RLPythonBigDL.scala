@@ -17,21 +17,13 @@
 
 package com.intel.analytics.bigdl.rl.python.api
 
-import com.intel.analytics.bigdl.nn._
+import com.intel.analytics.bigdl.rl.nn._
+
 import com.intel.analytics.bigdl.python.api.PythonBigDL
-import com.intel.analytics.bigdl.python.api.JTensor
-import com.intel.analytics.bigdl.numeric._
-import com.intel.analytics.bigdl.tensor.{Storage, Tensor}
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric._
 
-import com.intel.analytics.bigdl.tensor._
-import java.util.{ArrayList => JList}
-import java.nio.ByteBuffer
-
-import scala.collection.JavaConversions._
 import scala.reflect.ClassTag
-import org.apache.spark.api.java.JavaRDD
 import org.apache.log4j.Logger
 
 object RLPythonBigDL {
@@ -57,6 +49,11 @@ class RLPythonBigDL[T: ClassTag](implicit ev: TensorNumeric[T]) extends PythonBi
    def createVanillaPGCriterion(clipping: Boolean=false, clippingRange: Float=0.2f,sizeAverage: Boolean = true)
    : VanillaPGCriterion[T] = {
      VanillaPGCriterion[T](clipping,clippingRange,sizeAverage)
+   }
+
+   def createPGCriterion(isClip: Boolean=false, clipP: Double=1.2, clipN: Double=0.8, sizeAverage: Boolean = true)
+   : PGCriterion[T] = {
+     PGCriterion[T](isClip,clipP,clipN,sizeAverage)
    }
 
 }

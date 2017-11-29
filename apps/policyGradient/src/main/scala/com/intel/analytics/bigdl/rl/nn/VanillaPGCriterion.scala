@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-package com.intel.analytics.bigdl.nn
+package com.intel.analytics.bigdl.rl.nn
 
 import com.intel.analytics.bigdl.nn.abstractnn.TensorCriterion
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath._
 
+import com.intel.analytics.bigdl.nn.ErrorInfo
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
 import scala.reflect.ClassTag

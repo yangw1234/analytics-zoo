@@ -52,7 +52,7 @@ class PGCriterion[@specialized(Float, Double) T: ClassTag]
 
   def entropy(input: T, reward: T): T = {
     val target: T = if (isClip) clip(input,reward) else ev.one
-    println(s"target=$target")
+    // println(s"target=$target")
     ev.negative(ev.times(reward,
       ev.plus(ev.divide(target,input),
         ev.divide(ev.minus(ev.one,target),ev.minus(ev.one,input)))
@@ -81,14 +81,14 @@ class PGCriterion[@specialized(Float, Double) T: ClassTag]
       val targetReward = target.valueAt(2)
       val inputProb = input.valueAt(targetActIdx)
       val g = entropy(inputProb, targetReward)
-      println(s"inputProb=$inputProb, g = $g")
+      // println(s"inputProb=$inputProb, g = $g")
       gradInput.fill(ev.negative(ev.divide(g,ev.fromType[Int](n-1))))
       gradInput.setValue(targetActIdx, g)
     }
     // if contains batch dim
     else if (input.dim() == 2) {
       require(target.dim()==2,s"target dimension should be 2 (with batch dimension, but target dimension is: ${target.dim()}")
-      require(target.nElement() == 2*input.size(1),s"target should contain 2*inputsize of elements, but is:${target.nElement()}")
+      // require(target.nElement() == 2*input.size(1),s"target should contain 2*inputsize of elements, but is:${target.nElement()}")
 
       val batchSize = input.size(1)
       val n = input.size(2)
@@ -97,10 +97,10 @@ class PGCriterion[@specialized(Float, Double) T: ClassTag]
 
         val targetActIdx = ev.toType[Int](target.valueAt(b, 1))
         val targetReward = target.valueAt(b, 2)
-        //println(s"$targetActIdx")
+        // println(s"$targetActIdx")
         val inputProb = input.valueAt(b, targetActIdx)
         val g = entropy(inputProb,targetReward)
-        println(s"g = $g")
+        // println(s"g = $g")
         gradInput.select(1, b).fill(ev.negative(ev.divide(g,ev.fromType[Int](n-1))))
         gradInput.setValue(b, targetActIdx, g)
       }
