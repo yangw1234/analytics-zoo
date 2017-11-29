@@ -38,7 +38,8 @@ import com.intel.analytics.bigdl.utils.Engine
  */
 
 class VanillaPGCriterion[@specialized(Float, Double) T: ClassTag]
-(clipping:Boolean=false, clippingRange: Float = 0.2f, sizeAverage: Boolean = true) (implicit ev: TensorNumeric[T]) extends TensorCriterion[T] {
+(clipping:Boolean=false, clippingRange: Float = 0.2f, sizeAverage: Boolean = true)
+(implicit ev: TensorNumeric[T]) extends TensorCriterion[T] {
 
   override def updateOutput(input: Tensor[T], target: Tensor[T]): T = {
     //forward is trival here  
