@@ -54,7 +54,7 @@ class PGCriterion[@specialized(Float, Double) T: ClassTag]
     val target: T = if (isClip) clip(input,reward) else ev.one
     // println(s"target=$target")
     ev.negative(ev.times(reward,
-      ev.plus(ev.divide(target,input),
+      ev.minus(ev.divide(target,input),
         ev.divide(ev.minus(ev.one,target),ev.minus(ev.one,input)))
       )
     )
