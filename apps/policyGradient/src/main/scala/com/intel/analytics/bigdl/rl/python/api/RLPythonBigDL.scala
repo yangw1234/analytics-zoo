@@ -56,4 +56,9 @@ class RLPythonBigDL[T: ClassTag](implicit ev: TensorNumeric[T]) extends PythonBi
      PGCriterion[T](isClip,clipP,clipN,sizeAverage)
    }
 
+   def createRFPGCriterion(beta : Double = 0.01, epsilon: Double = 1e-8)
+   : RFPGCriterion[T] = {
+     RFPGCriterion[T](beta,epsilon)
+   }
+
 }

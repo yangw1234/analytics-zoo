@@ -30,3 +30,14 @@ class PGCriterion(Criterion):
                                                  clip_pos,
                                                  clip_neg,
                                                  size_average)
+
+
+class RFPGCriterion(Criterion):
+
+    def __init__(self,
+                 beta = 0.01,
+                 epsilon = 1e-8,
+                 bigdl_type="float"):
+        super(RFPGCriterion, self).__init__(None,bigdl_type,
+                                                 beta,
+                                                 epsilon)
