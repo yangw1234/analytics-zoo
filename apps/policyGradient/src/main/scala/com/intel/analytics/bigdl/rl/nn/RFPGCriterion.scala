@@ -13,34 +13,13 @@ class RFPGCriterion[@specialized(Float, Double) T: ClassTag]
 (implicit ev: TensorNumeric[T]) extends TensorCriterion[T] {
 
 
-  override def updateOutput(input: Tensor[T], target: Tensor[T]): T = {
-    //forward is trival here
-    output = ev.zero
-    // target is of size torch.DoubleTensor(batch_size, envDetails.nbActions)
-    // local obj = -2*torch.mean(torch.sum(targets, 2))/numSteps
-    // loss needs backward results of target, will extract the logic later.
-    output
-  }
-
-  override def updateGradInput(input: Tensor[T], target: Tensor[T]): Tensor[T] = {
-
-    // input size should be nxm, n is the batch size
-    require(input.dim() == 2, s"input dimension should be 2, the first dimension should be batch size, " +
-      s"but actually is: ${target.dim()}")
-    // target size should be (n,2)
-    // each row is (action, advantage)
-    require(target.dim() == 2, s"target dimension should be 2, the first dimension should be batch size, " +
-      s"but actually is: ${target.dim()}")
-
-    gradInput.resizeAs(input)
-    gradInput.zero()
-
+  def backpass(input: Tensor[T], target:Tensor[T]):  Tensor[T] = {
+    val backPassRslt: Tensor[T] = Tensor[T]().resizeAs(input)
+    backPassRslt.zero()
     //-- add small constant to avoid nans
     val newInput = Tensor[T]().resizeAs(input)
     newInput.copy(input)
     newInput.add(ev.fromType[Double](epsilon))
-
-
 
     val batchSize = newInput.size(1)
     // loop
@@ -59,15 +38,42 @@ class RFPGCriterion[@specialized(Float, Double) T: ClassTag]
       val targetActProb = newInput.valueAt(b, targetAction)
       val gTargetAct = ev.times(targetReward, ev.divide(ev.one, targetActProb))
       println(s"g = $gTargetAct")
-      gradInput.setValue(b, targetAction, gTargetAct)
-      println(s"gradInput = $gradInput")
+      backPassRslt.setValue(b, targetAction, gTargetAct)
+      println(s"gradInput = $backPassRslt")
     }
     // -- Add gradEntropy to targets to improve exploration and prevent convergence
     // -- to potentially suboptimal deterministic policy, gradient of entropy of
     //  --policy (for gradient descent): -(-logp(s) - 1)
     val gradEntropy = Tensor[T]().resizeAs(newInput).copy(newInput).log().add(ev.one)
-    gradInput.add(ev.fromType[Double](beta), gradEntropy)
+    backPassRslt.add(ev.fromType[Double](beta), gradEntropy)
     //println(s"gradInput = $gradInput")
+    return backPassRslt
+  }
+
+  override def updateOutput(input: Tensor[T], target: Tensor[T]): T = {
+    //forward is trival here
+    output = ev.zero
+    // target is of size torch.DoubleTensor(batch_size, envDetails.nbActions)
+    // local obj = -2*torch.mean(torch.sum(targets, 2))/numSteps
+    // loss needs backward results of target, will extract the logic later.
+    val backPassRsult = backpass(input,target)
+    output = ev.times(ev.fromType[Int](-2),
+      ev.divide(backPassRsult.sum(2).mean(),ev.fromType[Int](input.size(1))))
+    output
+  }
+
+  override def updateGradInput(input: Tensor[T], target: Tensor[T]): Tensor[T] = {
+
+    // input size should be nxm, n is the batch size
+    require(input.dim() == 2, s"input dimension should be 2, the first dimension should be batch size, " +
+      s"but actually is: ${target.dim()}")
+    // target size should be (n,2)
+    // each row is (action, advantage)
+    require(target.dim() == 2, s"target dimension should be 2, the first dimension should be batch size, " +
+      s"but actually is: ${target.dim()}")
+
+    gradInput.resizeAs(input)
+    gradInput.copy(backpass(input,target))
 
     gradInput
 
