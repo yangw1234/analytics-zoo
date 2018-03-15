@@ -32,22 +32,29 @@ def normalize(advantages, small_eps=1e-8):
     return (advantages - advantages.mean())/(advantages.std() + small_eps)
 
 
-def obs_act_adv_to_sample(x, sparse=True):
+def obs_act_adv_to_sample(x, action_space, sparse=True):
     if sparse:
-        return _to_sample_sparse(x)
+        return _to_sample_sparse(x, action_space)
     else:
-        return _to_sample_dense(x)
+        return _to_sample_dense(x, action_space)
 
-def _to_sample_sparse(x):
+def obs_act_adv_old_prob_to_sample(x, action_space):
+    # adv = np.zeros(action_space)
+    # adv[x[1]] = x[2]
+    # # old_prob = np.zeros(action_space)
+    # # old_prob[x[1]] = x[3]
+    return Sample.from_ndarray(x[0], [np.array(float(x[1])), np.array(x[2]), np.array(x[3])])
+
+def _to_sample_sparse(x, action_space):
     input_tensor = JTensor.from_ndarray(x[0]) #obs
     values = np.array([x[2]]) # adv
     indices = np.array([x[1]]) # act
-    shape = np.array([2])
+    shape = np.array([action_space])
     target_tensor = JTensor.sparse(values, indices, shape, bigdl_type="float")
     return Sample.from_jtensor(input_tensor, target_tensor)
 
-def _to_sample_dense(x):
-    label = np.zeros(2)
+def _to_sample_dense(x, action_space):
+    label = np.zeros(action_space)
     label[x[1]] = x[2]
     return Sample.from_ndarray(x[0], label)
 

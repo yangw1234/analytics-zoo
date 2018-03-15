@@ -16,6 +16,39 @@
 
 package com.intel.analytics.bigdl.rl.python.api
 
-class RLPythonBigDL {
+
+import com.intel.analytics.bigdl.rl.nn.{PPOCriterion, _}
+import com.intel.analytics.bigdl.python.api.{PythonBigDL, PythonBigDLKeras}
+import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
+import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric._
+
+import scala.reflect.ClassTag
+import org.apache.log4j.Logger
+
+
+object RLPythonBigDL {
+  val logger = Logger.getLogger("com.intel.analytics.bigdl.rl.python.api.RLPythonBigDL")
+
+  def ofFloat(): RLPythonBigDL[Float] = new RLPythonBigDL[Float]()
+
+  def ofDouble(): RLPythonBigDL[Double] = new RLPythonBigDL[Double]()
+
+}
+
+
+class RLPythonBigDL[T: ClassTag](implicit ev: TensorNumeric[T]) extends PythonBigDLKeras[T] {
+
+  private val typeName = {
+    val cls = implicitly[ClassTag[T]].runtimeClass
+    cls.getSimpleName
+  }
+
+  def createRLPythonBigDL(): RLPythonBigDL[T] = {
+    new RLPythonBigDL[T]()
+  }
+
+  def createPPOCriterion(epsilon: Double = 0.3, entropyCoeff: Double = 0.0): PPOCriterion[T] = {
+    PPOCriterion[T](epsilon, entropyCoeff)
+  }
 
 }

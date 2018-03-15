@@ -17,7 +17,7 @@ import numpy as np
 
 class Trajectory(object):
 
-    fields = ["observations", "actions", "rewards", "terminal"]
+    fields = ["observations", "actions", "rewards", "terminal", "action_prob"]
 
     def __init__(self):
         self.data = {k: [] for k in self.fields}
@@ -73,6 +73,7 @@ class PolicySampler(Sampler):
             action_distribution = policy.forward(self.last_obs)
             action = np.random.multinomial(1, action_distribution).argmax()
             observation, reward, terminal, info = env.step(action)
+            action_prob = action_distribution[action]
 
             length += 1
             if length >= horizon:
@@ -82,7 +83,8 @@ class PolicySampler(Sampler):
             traj.add(observations=self.last_obs,
                      actions=action,
                      rewards=reward,
-                     terminal=terminal)
+                     terminal=terminal,
+                     action_prob=action_prob)
 
             self.last_obs = observation
 

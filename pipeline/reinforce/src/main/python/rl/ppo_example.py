@@ -19,6 +19,7 @@ from bigdl.util.common import *
 from agent import *
 from utils import *
 from environment import *
+# from criterion import *
 import gym
 from gym import wrappers
 import math
@@ -32,7 +33,7 @@ def build_model(state_size, action_size):
     model.add(Linear(state_size, 10))
     model.add(Tanh())
 
-    model.add(Linear(10, 2))
+    model.add(Linear(10, action_size))
     model.add(SoftMax())
     return model
 
@@ -40,7 +41,7 @@ def build_model(state_size, action_size):
 def create_agent(x):
     env = gym.make('CartPole-v1')
     env = GymEnvWrapper(env)
-    return REINFORCEAgent(env, 498)
+    return PPOAgent(env, 498)
 
 
 def calc_baseline(r_rewards):
@@ -57,17 +58,18 @@ def normalize(records, eps=1e-8):
     mean = stats.mean()
     std = stats.sampleStdev()
 
-    return records.map(lambda x: (x[0], x[1], (x[2] - mean) / (std + eps)))
+    return records.map(lambda x: (x[0], x[1], (x[2] - mean) / (std + eps), x[3]))
 
 
 if __name__ == "__main__":
     spark_conf = create_spark_conf()
 
     sc = SparkContext(appName="REINFORCE_CartPole-v1", conf=spark_conf)
+    # JavaCreator.set_creator_class("com.intel.analytics.bigdl.rl.python.api.RLPythonBigDL")
     init_engine()
     init_executor_gateway(sc)
     redire_spark_logs()
-    # show_bigdl_logs("DEBUG")
+    # show_bigdl_info_logs()
 
     node_num, core_num = get_node_and_core_number()
     parallelism = node_num * core_num
@@ -78,11 +80,12 @@ if __name__ == "__main__":
     env = gym.make('CartPole-v1')
     env = wrappers.Monitor(env, "/tmp/cartpole-experiment", video_callable=lambda x: True, force=True)
     env = GymEnvWrapper(env)
-    test_agent = REINFORCEAgent(env, 1000)
+    test_agent = PPOAgent(env, 1000)
     state_size = env.gym.observation_space.shape[0]
     action_size = env.gym.action_space.n
 
     model = build_model(state_size, action_size)
+    criterion = PPOCriterion()
     criterion = PGCriterion()
 
     # create and cache several agents on each partition as specified by parallelism
@@ -91,15 +94,15 @@ if __name__ == "__main__":
         # a.agents is a RDD[Agent]
         agents = a.agents
         optimizer = None
-        num_trajs_per_part = int(math.ceil(15.0 / parallelism))
 
         for i in range(60):
-            with SampledTrajs(sc, agents, model, num_trajs_per_part=num_trajs_per_part) as trajs:
+            with SampledTrajs(sc, agents, model, num_steps_per_part=500) as trajs:
                 # samples is a RDD[Trajectory]
                 trajs = trajs.samples \
                     .map(lambda traj: (traj.data["observations"],
                                        traj.data["actions"],
-                                       traj.data["rewards"]))
+                                       traj.data["rewards"],
+                                       traj.data["action_prob"]))
 
                 rewards_stat = trajs.map(lambda traj: traj[2].sum()).stats()
 
@@ -109,17 +112,18 @@ if __name__ == "__main__":
                 print "reward max:", rewards_stat.max()
 
                 # calculate the discounted sum of future rewards
-                trajs = trajs.map(lambda x: (x[0], x[1], discounted_sum_of_future_rewards(x[2], GAMMA)))
+                trajs = trajs.map(lambda x: (x[0], x[1], discounted_sum_of_future_rewards(x[2], GAMMA), x[3]))
 
                 # calculate advantages
                 baseline = calc_baseline(trajs.map(lambda x: x[2]))
-                trajs = trajs.map(lambda x: (x[0], x[1], x[2] - baseline[:len(x[2])]))
+                trajs = trajs.map(lambda x: (x[0], x[1], x[2] - baseline[:len(x[2])], x[3]))
 
                 # trajectories to records
-                records = trajs.flatMap(lambda x: [(x[0][i], x[1][i], x[2][i]) for i in range(len(x[0]))])
+                records = trajs.flatMap(lambda x: [(x[0][i], x[1][i], x[2][i], x[3][i]) for i in range(len(x[0]))])
 
                 num_records = records.count()
                 batch_size = num_records - num_records % parallelism
+                # batch_size = 100
 
                 print "total %s num_records" % num_records
                 print "using %s batch_size" % batch_size
@@ -128,7 +132,8 @@ if __name__ == "__main__":
                 normalized = normalize(records)
 
                 # to bigdl sample
-                data = normalized.map(lambda x: obs_act_adv_to_sample(x, 2))
+                # data = normalized.map(lambda x: obs_act_adv_old_prob_to_sample(x, 2))
+                data = normalized.map(lambda x: obs_act_adv_to_sample(x, 2, False))
 
                 # update one step
                 if optimizer is None:
