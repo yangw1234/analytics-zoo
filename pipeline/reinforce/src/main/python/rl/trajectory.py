@@ -73,7 +73,7 @@ class PolicySampler(Sampler):
             action_distribution = policy.forward(self.last_obs)
             action = np.random.multinomial(1, action_distribution).argmax()
             observation, reward, terminal, info = env.step(action)
-            action_prob = action_distribution[action]
+            action_prob = action_distribution
 
             length += 1
             if length >= horizon:

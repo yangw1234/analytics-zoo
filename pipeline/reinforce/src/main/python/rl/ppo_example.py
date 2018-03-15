@@ -86,7 +86,6 @@ if __name__ == "__main__":
 
     model = build_model(state_size, action_size)
     criterion = PPOCriterion()
-    criterion = PGCriterion()
 
     # create and cache several agents on each partition as specified by parallelism
     # and cache it
