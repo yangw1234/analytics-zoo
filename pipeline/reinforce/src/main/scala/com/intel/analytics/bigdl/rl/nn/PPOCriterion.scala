@@ -24,7 +24,9 @@ import scala.reflect.ClassTag
 
 class PPOCriterion[T: ClassTag](
                                  epsilon: Double = 0.3,
-                                 entropyCoeff: Double = 0.0
+                                 entropyCoeff: Double = 0.0,
+                                 klTarget: Double = 0.01,
+                                 initBeta: Double = 0.0
                                )
                                (implicit ev: TensorNumeric[T])
   extends AbstractCriterion[Tensor[T], Table, T] {
@@ -33,6 +35,8 @@ class PPOCriterion[T: ClassTag](
   private val buffer: Tensor[T] = Tensor[T]()
   private val mask: Tensor[T] = Tensor[T]()
   private val distributionBuffer = Tensor[T]()
+  private var beta: Double = initBeta
+  private var kld: T = ev.zero
 
   private var surr1: Tensor[T] = null
   private var surr2: Tensor[T] = null
@@ -42,8 +46,8 @@ class PPOCriterion[T: ClassTag](
       .copy(dist).log().cmul(dist).sum()
   }
 
-  private def sumOfKLD(p: Tensor[T], q: Tensor[T]): T = {
-    distributionBuffer.resizeAs(p).copy(p).div(q).log().cmul(p).sum()
+  private def meanOfKLD(p: Tensor[T], q: Tensor[T]): T = {
+    distributionBuffer.resizeAs(p).copy(p).div(q).log().cmul(p).mean()
   }
 
   override def updateOutput(input: Tensor[T], target: Table): T = {
@@ -84,6 +88,12 @@ class PPOCriterion[T: ClassTag](
     if (entropyCoeff != 0.0) {
       output = ev.plus(output, ev.divide(sumOfNegativeEntropy(input), ev.fromType(batchSize)))
     }
+
+    if (initBeta != 0.0) {
+      kld = meanOfKLD(preProbs, input)
+      output = ev.plus(output, ev.times(kld, ev.fromType(beta)))
+    }
+
     output
   }
 
@@ -120,6 +130,17 @@ class PPOCriterion[T: ClassTag](
       gradInput.add(distributionBuffer)
     }
 
+    if (initBeta != 0.0) {
+      distributionBuffer.resizeAs(input).copy(preProbs).cdiv(input).mul(ev.fromType(-1))
+      gradInput.add(distributionBuffer)
+
+      if (ev.isGreater(kld, ev.fromType(klTarget * 1.5))) {
+        beta = beta * 2.0
+      } else if (ev.isGreater(ev.fromType(klTarget / 1.5), kld)) {
+        beta = beta / 2.0
+      }
+    }
+
     gradInput
   }
 }
@@ -127,8 +148,11 @@ class PPOCriterion[T: ClassTag](
 object PPOCriterion {
   def apply[@specialized(Float, Double) T: ClassTag](
                                                       epsilon: Double = 0.3,
-                                                      entropyCoeff: Double = 0.0)
+                                                      entropyCoeff: Double = 0.0,
+                                                      klTarget: Double = 0.01,
+                                                      initBeta: Double = 0.0
+                                                    )
                                                     (implicit ev: TensorNumeric[T]): PPOCriterion[T] = {
-    new PPOCriterion(epsilon, entropyCoeff)
+    new PPOCriterion(epsilon, entropyCoeff, klTarget, initBeta)
   }
 }
