@@ -71,10 +71,13 @@ class REINFORCEAgent(Agent):
 
 class PPOAgent(Agent):
 
-    def __init__(self, env, horizon = 1000):
+    def __init__(self, env, horizon = 1000, config=None, use_gae=False):
         self.env = env
         self.horizon = horizon
-        self.sampler = PolicySampler(env, horizon)
+        self.sampler = PolicySampler(env, horizon, use_gae)
+        self.use_gae = use_gae
+        if config is None:
+            self.config = {'gamma': 1.0, 'lambda': 1.0}
 
     def sample(self, model, num_steps=None, num_trajs=None):
         if num_steps is None and num_trajs is None:
@@ -88,7 +91,10 @@ class PPOAgent(Agent):
         num_steps_so_far = 0
         samples = []
         while num_steps_so_far < num_steps:
-            traj, traj_size = _process_traj(self.sampler.get_data(model, num_steps - num_steps_so_far))
+            traj, traj_size = _process_traj(self.sampler.get_data(model, num_steps - num_steps_so_far),
+                                            gamma=self.config['gamma'],
+                                            lambda_=self.config['lambda'],
+                                            use_gae=self.use_gae)
             samples.append(traj)
             num_steps_so_far += traj_size
         return samples
@@ -97,7 +103,10 @@ class PPOAgent(Agent):
         i = 0
         samples = []
         while i < num_trajs:
-            traj, traj_size = _process_traj(self.sampler.get_data(model, self.horizon))
+            traj, traj_size = _process_traj(self.sampler.get_data(model, self.horizon),
+                                            gamma=self.config['gamma'],
+                                            lambda_=self.config['lambda'],
+                                            use_gae=self.use_gae)
             samples.append(traj)
             i += 1
         return samples
@@ -116,9 +125,23 @@ class DistributedAgents(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.agents.unpersist()
 
+def _discount(x, gamma):
+    return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
 
-def _process_traj(traj):
+
+def _process_traj(traj, gamma, lambda_=1.0, use_gae=False):
     traj_size = len(traj.data["actions"])
     for key in traj.data:
         traj.data[key] = np.stack(traj.data[key])
+
+    if use_gae:
+        vpred_t = np.stack(traj.data['v_pred'] + [np.array(traj.last_r)]).squeeze()
+        delta_t = traj.data["rewards"] + gamma * vpred_t[1:] - vpred_t[:-1]
+        traj.data["advantages"] = _discount(delta_t, gamma * lambda_)
+        traj.data["value_targets"] = traj.data["advantages"] + traj.data["vf_preds"]
+    else:
+        rewards_plus_v = np.stack(
+            traj.data["rewards"] + [np.array(traj.last_r)]).squeeze()
+        traj.data["advantages"] = _discount(rewards_plus_v, gamma)
+
     return traj, traj_size

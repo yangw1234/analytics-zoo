@@ -55,9 +55,11 @@ class PolicySampler(Sampler):
     using the given policy
     '''
 
-    def __init__(self, env, horizon=None):
+    def __init__(self, env, horizon=None, use_gae=False):
         self.horizon = horizon
         self.env = env
+        self.discrete = env.discrete_action_space
+        self.use_gae = use_gae
         self.last_obs = env.reset()
 
     def get_data(self, policy, max_steps):
@@ -68,10 +70,22 @@ class PolicySampler(Sampler):
         length = 0
 
         traj = Trajectory()
-
+        terminal = False
         for _ in range(max_steps):
-            action_distribution = policy.forward(self.last_obs)
-            action = np.random.multinomial(1, action_distribution).argmax()
+            if self.use_gae:
+                 output = policy.forward(self.last_obs)
+                 action_distribution = output[0]
+                 v_pred = output[1]
+            else:
+                action_distribution = policy.forward(self.last_obs)
+
+            if self.discrete:
+                action = np.random.multinomial(1, action_distribution).argmax()
+            else:
+                mu = action_distribution[0]
+                log_sigma = action_distribution[1]
+                action = np.random.multivariate_normal(mean=mu, cov=np.diag(np.square(np.exp(log_sigma))))
+
             observation, reward, terminal, info = env.step(action)
             action_prob = action_distribution
 
@@ -80,15 +94,26 @@ class PolicySampler(Sampler):
                 terminal = True
 
             # Collect the experience.
-            traj.add(observations=self.last_obs,
-                     actions=action,
-                     rewards=reward,
-                     terminal=terminal,
-                     action_prob=action_prob)
+            if self.use_gae:
+                traj.add(observations=self.last_obs,
+                         actions=action,
+                         rewards=reward,
+                         terminal=terminal,
+                         action_prob=action_prob,
+                         v_pred=v_pred)
+            else:
+                traj.add(observations=self.last_obs,
+                         actions=action,
+                         rewards=reward,
+                         terminal=terminal,
+                         action_prob=action_prob)
 
             self.last_obs = observation
 
             if terminal:
                 self.last_obs = env.reset()
                 break
+        if (not terminal) and self.use_gae:
+            _, traj.last_r = policy.forward(self.last_obs)
+
         return traj

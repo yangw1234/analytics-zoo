@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+from gym.spaces.discrete import Discrete
 
 class Environment(object):
 
@@ -33,6 +34,13 @@ class GymEnvWrapper(object):
 
     def __init__(self, env):
         self.gym = env
+        self.action_space = env.action_space
+        self.observation_space = env.observation_space
+        if isinstance(env.action_space, Discrete):
+            self.discrete_action_space = True
+        else:
+            self.discrete_action_space = False
+
 
     def reset(self):
         return self.gym.reset()

@@ -17,7 +17,7 @@
 package com.intel.analytics.bigdl.rl.python.api
 
 
-import com.intel.analytics.bigdl.rl.nn.{PPOCriterion, _}
+import com.intel.analytics.bigdl.rl.nn.{DiscretePPOCriterion, _}
 import com.intel.analytics.bigdl.python.api.{PythonBigDL, PythonBigDLKeras}
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric._
@@ -47,8 +47,19 @@ class RLPythonBigDL[T: ClassTag](implicit ev: TensorNumeric[T]) extends PythonBi
     new RLPythonBigDL[T]()
   }
 
-  def createPPOCriterion(epsilon: Double = 0.3, entropyCoeff: Double = 0.0): PPOCriterion[T] = {
-    PPOCriterion[T](epsilon, entropyCoeff)
+  def createDiscretePPOCriterion(epsilon: Double,
+                         entropyCoeff: Double,
+                         klTarget: Double,
+                         initBeta: Double
+                        ): DiscretePPOCriterion[T] = {
+    DiscretePPOCriterion[T](epsilon, entropyCoeff, klTarget, initBeta)
+  }
+
+  def createContinuousPPOCriterion(epsilon: Double,
+                                   entropyCoeff: Double,
+                                   klTarget: Double,
+                                   initBeta: Double): ContinuousPPOCriterion[T] = {
+    ContinuousPPOCriterion[T](epsilon, entropyCoeff, klTarget, initBeta)
   }
 
 }

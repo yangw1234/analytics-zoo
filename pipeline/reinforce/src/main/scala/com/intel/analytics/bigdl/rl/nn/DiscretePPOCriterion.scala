@@ -22,13 +22,13 @@ import com.intel.analytics.bigdl.utils.Table
 
 import scala.reflect.ClassTag
 
-class PPOCriterion[T: ClassTag](
+class DiscretePPOCriterion[T: ClassTag](
                                  epsilon: Double = 0.3,
                                  entropyCoeff: Double = 0.0,
                                  klTarget: Double = 0.01,
                                  initBeta: Double = 0.0
                                )
-                               (implicit ev: TensorNumeric[T])
+                                       (implicit ev: TensorNumeric[T])
   extends AbstractCriterion[Tensor[T], Table, T] {
   private val ratio: Tensor[T] = Tensor[T]()
   private val clippedRatio: Tensor[T] = Tensor[T]()
@@ -145,14 +145,14 @@ class PPOCriterion[T: ClassTag](
   }
 }
 
-object PPOCriterion {
+object DiscretePPOCriterion {
   def apply[@specialized(Float, Double) T: ClassTag](
                                                       epsilon: Double = 0.3,
                                                       entropyCoeff: Double = 0.0,
                                                       klTarget: Double = 0.01,
                                                       initBeta: Double = 0.0
                                                     )
-                                                    (implicit ev: TensorNumeric[T]): PPOCriterion[T] = {
-    new PPOCriterion(epsilon, entropyCoeff, klTarget, initBeta)
+                                                    (implicit ev: TensorNumeric[T]): DiscretePPOCriterion[T] = {
+    new DiscretePPOCriterion(epsilon, entropyCoeff, klTarget, initBeta)
   }
 }

@@ -5,10 +5,10 @@ import com.intel.analytics.bigdl.utils.T
 import org.scalatest.{FlatSpec, Matchers}
 
 
-class PPOCriterionSpec extends FlatSpec with Matchers {
+class DiscretePPOCriterionSpec extends FlatSpec with Matchers {
 
   "PPOCriterion " should "give correct result with dense target" in {
-    val criterion = PPOCriterion[Float]()
+    val criterion = DiscretePPOCriterion[Float]()
 
     val input = Tensor[Float](T(T(0.5, 0.2, 0.3)))
     val target = T(Tensor[Float](T(0.0)), Tensor[Float](T(10.0)) ,Tensor[Float](T(T(0.4, 0.4, 0.2))))
