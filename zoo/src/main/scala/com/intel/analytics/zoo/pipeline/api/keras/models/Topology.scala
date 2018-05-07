@@ -278,20 +278,12 @@ class Model[T: ClassTag] private (private val _inputs : Seq[ModuleNode[T]],
     graph.node(name)
   }
 
-  override def getInputs: Seq[ModuleNode[T]] = {
-    this._inputs
-  }
-
-  override def getOutputs: Seq[ModuleNode[T]] = {
-    this._outputs
-  }
-
   override def newGraph(output: String): Model[T] = {
-    new Model[T](getInputs, nodes(Seq(output)))
+    new Model[T](_inputs, nodes(Seq(output)))
   }
 
   override def newGraph(outputs: Seq[String]): Model[T] = {
-    new Model[T](getInputs, nodes(outputs))
+    new Model[T](_inputs, nodes(outputs))
   }
 
   override def toModel(): Model[T] = this
@@ -478,8 +470,3 @@ object Sequential extends KerasLayerSerializable{
     new Sequential[T]()
   }
 }
-
-
-
-
-

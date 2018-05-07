@@ -4,7 +4,6 @@ import com.intel.analytics.bigdl.nn.{DynamicGraph, Graph, StaticGraph}
 import com.intel.analytics.bigdl.nn.Graph.ModuleNode
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
-import com.intel.analytics.bigdl.utils.Node
 
 import scala.collection.mutable
 import scala.reflect.ClassTag
@@ -49,9 +48,6 @@ class StaticGraphWithUtils[T: ClassTag] (
     new StaticGraphWithUtils[T](inputs, nodes(outputs))
   }
 
-  override def getInputs: Seq[ModuleNode[T]] = inputs
-
-  override def getOutputs: Seq[ModuleNode[T]] = outputs
 }
 
 class DynamicGraphWithUtils[T: ClassTag](
@@ -74,32 +70,46 @@ class DynamicGraphWithUtils[T: ClassTag](
       nodes(outputs).map(_.removeNextEdges()), _variables, generateBackward)
   }
 
-  override def getInputs: Seq[ModuleNode[T]] = inputs
-
-  override def getOutputs: Seq[ModuleNode[T]] = outputs
-
 }
 
 
 trait GraphUtils[T, D <: Module[T] with GraphUtils[T, D]] {
 
+  /**
+   * Return the nodes in the graph as specified by the names
+   */
   def nodes(names: Seq[String]): Seq[ModuleNode[T]] = {
     names.map(node)
   }
 
+  /**
+   * Return the node in the graph as specified by the name
+   */
   def node(name: String): ModuleNode[T]
 
-  def getInputs: Seq[ModuleNode[T]]
-
-  def getOutputs: Seq[ModuleNode[T]]
-
+  /**
+   * Freeze the model from the bottom up to the layers
+   * specified by names (inclusive).
+   *
+   * This is useful for finetune a model
+   * @param names
+   * @return
+   */
   def freezeUpTo(names: String*): this.type = {
     DFS(nodes(names)).foreach(_.element.freeze())
     this
   }
 
+  /**
+   * Specify a node as output and return a new graph using
+   * the existing nodes
+   */
   def newGraph(output: String): D
 
+  /**
+   * Specify a seq of nodes as output and return a new graph using
+   * the existing nodes
+   */
   def newGraph(outputs: Seq[String]): D
 
   private def DFS(endPoints: Seq[ModuleNode[T]]): Iterator[ModuleNode[T]] = {
