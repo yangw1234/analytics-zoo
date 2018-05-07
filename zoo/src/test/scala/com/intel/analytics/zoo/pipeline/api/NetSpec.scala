@@ -32,7 +32,8 @@ class NetSpec extends ZooSpecHelper{
   "Load Caffe" should "work" in {
     val resource = getClass().getClassLoader().getResource("models")
     val path = resource.getPath + "/" + "caffe"
-    val model = Net.loadCaffe[Float](s"$path/test_persist.prototxt", s"$path/test_persist.caffemodel")
+    val model = Net.loadCaffe[Float](
+      s"$path/test_persist.prototxt", s"$path/test_persist.caffemodel")
     val newModel = model.newGraph("ip")
     GraphUtils.getOutputs(newModel).head.element.getName() should be ("ip")
   }
@@ -41,7 +42,8 @@ class NetSpec extends ZooSpecHelper{
     val resource = getClass().getClassLoader().getResource("models")
     val path = resource.getPath + "/" + "bigdl"
     val model = Net.loadBigDL[Float](s"$path/bigdl_inception-v1_imagenet_0.4.0.model")
-    val newModel = GraphUtils.withGraphUtils(model.asInstanceOf[Graph[Float]]).newGraph("pool5/drop_7x7_s1")
+    val newModel = GraphUtils.withGraphUtils(
+      model.asInstanceOf[Graph[Float]]).newGraph("pool5/drop_7x7_s1")
     GraphUtils.getOutputs(newModel).head.element.getName() should be ("pool5/drop_7x7_s1")
   }
 

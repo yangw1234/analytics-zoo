@@ -1,3 +1,18 @@
+/*
+ * Copyright 2018 Analytics Zoo Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.intel.analytics.bigdl
 
 import com.intel.analytics.bigdl.nn.{DynamicGraph, Graph, StaticGraph}
@@ -18,7 +33,8 @@ object GraphUtils {
   }
 
   def withGraphUtils[T: ClassTag](graph: Graph[T])
-        (implicit ev: TensorNumeric[T]): Graph[T] with GraphUtils[T, _ <: Graph[T] with GraphUtils[T, _]] = {
+        (implicit ev: TensorNumeric[T]):
+  Graph[T] with GraphUtils[T, _ <: Graph[T] with GraphUtils[T, _]] = {
     val inputs = graph.inputs
     val outputs = graph.outputs
     val variables = graph.variables
@@ -37,8 +53,10 @@ object GraphUtils {
 class StaticGraphWithUtils[T: ClassTag] (
    private val _inputs : Seq[ModuleNode[T]],
    private val _outputs : Seq[ModuleNode[T]],
-   private val _variables: Option[(Array[Tensor[T]], Array[Tensor[T]])] = None)(implicit ev: TensorNumeric[T])
-  extends StaticGraph[T](_inputs, _outputs, _variables) with GraphUtils[T, StaticGraphWithUtils[T]] {
+   private val _variables: Option[(Array[Tensor[T]], Array[Tensor[T]])] = None)
+                                        (implicit ev: TensorNumeric[T])
+  extends StaticGraph[T](_inputs, _outputs, _variables)
+    with GraphUtils[T, StaticGraphWithUtils[T]] {
 
   override def newGraph(output: String): StaticGraphWithUtils[T] = {
     new StaticGraphWithUtils[T](inputs, nodes(Seq(output)), _variables)
@@ -55,7 +73,8 @@ class DynamicGraphWithUtils[T: ClassTag](
   _outputs : Seq[ModuleNode[T]],
   _variables: Option[(Array[Tensor[T]], Array[Tensor[T]])] = None,
   generateBackward: Boolean = true)(implicit ev: TensorNumeric[T])
-  extends DynamicGraph[T](_inputs, _outputs, _variables, generateBackward) with GraphUtils[T, DynamicGraphWithUtils[T]] {
+  extends DynamicGraph[T](_inputs, _outputs, _variables, generateBackward)
+    with GraphUtils[T, DynamicGraphWithUtils[T]] {
 
   override def newGraph(output: String): DynamicGraphWithUtils[T] = {
     new DynamicGraphWithUtils[T](
@@ -92,8 +111,6 @@ trait GraphUtils[T, D <: Module[T] with GraphUtils[T, D]] {
    * specified by names (inclusive).
    *
    * This is useful for finetune a model
-   * @param names
-   * @return
    */
   def freezeUpTo(names: String*): this.type = {
     DFS(nodes(names)).foreach(_.element.freeze())
@@ -134,5 +151,4 @@ trait GraphUtils[T, D <: Module[T] with GraphUtils[T, D]] {
       }
     }
   }
-
 }
