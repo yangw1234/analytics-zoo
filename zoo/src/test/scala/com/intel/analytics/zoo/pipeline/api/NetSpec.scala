@@ -17,6 +17,7 @@
 package com.intel.analytics.zoo.pipeline.api
 
 import com.intel.analytics.bigdl.GraphUtils
+import com.intel.analytics.bigdl.nn.Graph
 import com.intel.analytics.bigdl.utils.Shape
 import com.intel.analytics.zoo.pipeline.api.keras.ZooSpecHelper
 import com.intel.analytics.zoo.pipeline.api.keras.layers.Dense
@@ -40,7 +41,7 @@ class NetSpec extends ZooSpecHelper{
     val resource = getClass().getClassLoader().getResource("models")
     val path = resource.getPath + "/" + "bigdl"
     val model = Net.loadBigDL[Float](s"$path/bigdl_inception-v1_imagenet_0.4.0.model")
-    val newModel = model.newGraph("pool5/drop_7x7_s1")
+    val newModel = GraphUtils.withGraphUtils(model.asInstanceOf[Graph[Float]]).newGraph("pool5/drop_7x7_s1")
     GraphUtils.getOutputs(newModel).head.element.getName() should be ("pool5/drop_7x7_s1")
   }
 
