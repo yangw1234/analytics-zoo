@@ -1,16 +1,18 @@
 package com.intel.analytics.zoo.examples.nnframes.finetune
 
+import com.intel.analytics.bigdl.Module
 import com.intel.analytics.bigdl.nn.CrossEntropyCriterion
 import com.intel.analytics.bigdl.optim.{Top1Accuracy, Trigger}
-import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric.NumericFloat
-import com.intel.analytics.bigdl.transform.vision.image.augmentation.{CenterCrop, ChannelNormalize, Resize}
-import com.intel.analytics.bigdl.transform.vision.image.{ImageFrameToSample, MatToTensor}
+import com.intel.analytics.zoo.feature.image._
 import com.intel.analytics.bigdl.utils.{LoggerFilter, Shape}
 import com.intel.analytics.zoo.common.NNContext
+import com.intel.analytics.zoo.feature.common.{ImageFeatureToTensor, RowToImageFeature}
 import com.intel.analytics.zoo.pipeline.api.Net
 import com.intel.analytics.zoo.pipeline.api.keras.layers._
 import com.intel.analytics.zoo.pipeline.api.keras.models.Model
-import com.intel.analytics.zoo.pipeline.nnframes.{NNClassifier, NNImageReader, NNImageTransformer}
+import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric.NumericFloat
+import com.intel.analytics.zoo.feature.image.{CenterCrop, ChannelNormalize, MatToTensor, Resize}
+import com.intel.analytics.zoo.pipeline.nnframes.{NNClassifier, NNClassifierModel, NNImageReader}
 import org.apache.spark.ml.Pipeline
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.functions.{col, udf}
@@ -58,18 +60,24 @@ object TransferLearning {
 
       val (trainDf, valDf) = getImageData(param.dataPath, sc)
 
-      val featureTransformer = createTransformer()
+      val featureTransformer = RowToImageFeature() -> Resize(256, 256) ->
+                                   CenterCrop(224, 224) ->
+                                   ChannelNormalize(123, 117, 104) ->
+                                   MatToTensor() ->
+                                   ImageFeatureToTensor()
 
-      val valTransformed = featureTransformer.transform(valDf)
-      val classifier = new NNClassifier(model, CrossEntropyCriterion[Float](), Array(3, 224, 224))
-        .setFeaturesCol("output")
+
+      // val valTransformed = featureTransformer.transform(valDf)
+      val dlmodel = new NNClassifierModel(model, featureTransformer)
+      val classifier = new NNClassifier(model, CrossEntropyCriterion[Float](), featureTransformer)
+        .setFeaturesCol("image")
         .setLearningRate(0.003)
         .setBatchSize(param.batchSize)
         .setMaxEpoch(param.nEpochs)
-        .setValidation(Trigger.everyEpoch, valTransformed, Array(new Top1Accuracy()), param.batchSize)
+        .setValidation(Trigger.everyEpoch, valDf, Array(new Top1Accuracy()), param.batchSize)
 
 
-      val pipeline = new Pipeline().setStages(Array(featureTransformer, classifier))
+      val pipeline = new Pipeline().setStages(Array(classifier))
 
       val pipelineModel = pipeline.fit(trainDf)
 
@@ -83,7 +91,7 @@ object TransferLearning {
     })
   }
 
-  private def getTransferLearningModel(preTrainedPath: String) = {
+  private def getTransferLearningModel(preTrainedPath: String): Module[Float] = {
     // you can use Net.loadBigDL[Float](preTrainedPath).saveGraphTopology(somePath)
     // and use tensorboard to visualize the model topology and decide
     val inception = Net
@@ -98,16 +106,7 @@ object TransferLearning {
     val flattern = Flatten[Float]().inputs(feature)
     val logits = Dense[Float](2).inputs(flattern)
 
-    Model(input, logits)
-  }
-
-  private def createTransformer() = {
-    new NNImageTransformer(
-      Resize(256, 256) ->
-        CenterCrop(224, 224) ->
-        ChannelNormalize(123, 117, 104) ->
-        MatToTensor() ->
-        ImageFrameToSample())
+    Model[Float](input, logits)
   }
 
   private def getImageData(dataPath: String, sc: SparkContext) = {
@@ -118,5 +117,4 @@ object TransferLearning {
       .randomSplit(Array(0.20, 0.80), seed = 1L)
     (trainingDF, validationDF)
   }
-
 }
