@@ -18,13 +18,17 @@ package com.intel.analytics.zoo.pipeline.api
 
 import java.nio.ByteOrder
 
+import com.intel.analytics.bigdl.GraphUtils
+import com.intel.analytics.bigdl.nn.Graph.ModuleNode
+import com.intel.analytics.bigdl.nn.{Graph, StaticGraph}
 import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
-import com.intel.analytics.bigdl.utils.File
+import com.intel.analytics.bigdl.utils.{File, MultiShape, Shape}
 import com.intel.analytics.bigdl.utils.caffe.CaffeLoader
 import com.intel.analytics.bigdl.utils.serializer.ModuleLoader
 import com.intel.analytics.bigdl.utils.tf.{Session, TensorflowLoader}
-import com.intel.analytics.zoo.pipeline.api.keras.models.KerasNet
+import com.intel.analytics.zoo.pipeline.api.keras.layers.KerasLayerWrapper
+import com.intel.analytics.zoo.pipeline.api.keras.models.{KerasNet, Model}
 
 import scala.reflect.ClassTag
 
@@ -69,12 +73,14 @@ object Net {
    */
   def loadBigDL[T: ClassTag](path : String,
       weightPath : String = null)(implicit ev: TensorNumeric[T])
-  : AbstractModule[Activity, Activity, T] = {
-    ModuleLoader.loadFromFile(path, weightPath)
+  : GraphUtils.GraphWithUtils[T] = {
+    val graph = ModuleLoader.loadFromFile(path, weightPath).asInstanceOf[Graph[T]]
+    GraphUtils.withGraphUtils(graph)
   }
 
-  def loadTorch[T: ClassTag](path : String) : AbstractModule[Activity, Activity, T] = {
-    File.loadTorch[AbstractModule[Activity, Activity, T]](path)
+  def loadTorch[T: ClassTag](path : String)(implicit ev: TensorNumeric[T]) : GraphUtils.GraphWithUtils[T] = {
+    val graph = File.loadTorch[AbstractModule[Activity, Activity, T]](path).asInstanceOf[Graph[T]]
+    GraphUtils.withGraphUtils(graph)
   }
 
   /**
@@ -83,9 +89,10 @@ object Net {
    * @param modelPath caffe model binary file containing weight and bias
    */
   def loadCaffe[T: ClassTag](defPath: String, modelPath: String)(
-      implicit ev: TensorNumeric[T]): AbstractModule[Activity, Activity, T] = {
-    CaffeLoader.loadCaffe[T](defPath, modelPath)._1
-      .asInstanceOf[AbstractModule[Activity, Activity, T]]
+      implicit ev: TensorNumeric[T]): GraphUtils.GraphWithUtils[T] = {
+    val graph = CaffeLoader.loadCaffe[T](defPath, modelPath)._1
+      .asInstanceOf[Graph[T]]
+    GraphUtils.withGraphUtils(graph)
   }
 
   /**

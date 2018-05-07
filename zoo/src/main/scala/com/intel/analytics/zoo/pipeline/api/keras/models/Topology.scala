@@ -18,6 +18,7 @@ package com.intel.analytics.zoo.pipeline.api.keras.models
 
 import com.intel.analytics.bigdl.dataset._
 import com.intel.analytics.bigdl.{Criterion, DataSet}
+import com.intel.analytics.bigdl.GraphUtils
 import com.intel.analytics.bigdl.nn.Graph.ModuleNode
 import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
 import com.intel.analytics.bigdl.nn.keras.{KerasLayer, KerasLayerSerializable}
@@ -224,11 +225,13 @@ abstract class KerasNet[T: ClassTag](implicit ev: TensorNumeric[T])
     val localPredictor = LocalPredictor(this)
     localPredictor.predict(x)
   }
+
+  def toModel(): Model[T]
 }
 
 class Model[T: ClassTag] private (private val _inputs : Seq[ModuleNode[T]],
     private val _outputs : Seq[ModuleNode[T]])(implicit ev: TensorNumeric[T])
-  extends KerasNet[T] {
+  extends KerasNet[T] with GraphUtils[T, Model[T]] {
   this.labor = doBuild(null)
   KerasLayerRef(this).excludeInvalidLayers(this.labor.asInstanceOf[StaticGraph[T]].
     getForwardExecutions().map {_.element})
@@ -264,6 +267,34 @@ class Model[T: ClassTag] private (private val _inputs : Seq[ModuleNode[T]],
     this.labor.asInstanceOf[Graph[T]].saveGraphTopology(logPath, backward)
     this
   }
+
+  private val graph = labor.asInstanceOf[Graph[T]]
+
+  override def nodes(names: Seq[String]): Seq[ModuleNode[T]] = {
+    names.map(graph.node)
+  }
+
+  override def node(name: String): ModuleNode[T] = {
+    graph.node(name)
+  }
+
+  override def getInputs: Seq[ModuleNode[T]] = {
+    this._inputs
+  }
+
+  override def getOutputs: Seq[ModuleNode[T]] = {
+    this._outputs
+  }
+
+  override def newGraph(output: String): Model[T] = {
+    new Model[T](getInputs, nodes(Seq(output)))
+  }
+
+  override def newGraph(outputs: Seq[String]): Model[T] = {
+    new Model[T](getInputs, nodes(outputs))
+  }
+
+  override def toModel(): Model[T] = this
 }
 
 object Model extends KerasLayerSerializable {
@@ -428,6 +459,13 @@ class Sequential[T: ClassTag] private ()
     kerasLayerRef.checkWithCurrentInputShape(calcInputShape)
     getOutputShape()
   }
+
+  override def toModel(): Model[T] = {
+    val graph = labor.toGraph()
+    val inputs = graph.inputs
+    val outputs = GraphUtils.getOutputs(graph)
+    Model(inputs.toArray, outputs.toArray)
+  }
 }
 
 object Sequential extends KerasLayerSerializable{
@@ -440,4 +478,8 @@ object Sequential extends KerasLayerSerializable{
     new Sequential[T]()
   }
 }
+
+
+
+
 
