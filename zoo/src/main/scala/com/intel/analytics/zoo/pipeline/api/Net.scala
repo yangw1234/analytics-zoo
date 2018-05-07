@@ -77,8 +77,10 @@ object Net {
     ModuleLoader.loadFromFile(path, weightPath)
   }
 
-  def loadTorch[T: ClassTag](path : String)(implicit ev: TensorNumeric[T]) : GraphUtils.GraphWithUtils[T] = {
-    val graph = File.loadTorch[AbstractModule[Activity, Activity, T]](path).asInstanceOf[Graph[T]]
+  def loadTorch[T: ClassTag](path : String)(implicit ev: TensorNumeric[T]):
+  GraphUtils.GraphWithUtils[T] = {
+    val graph = File.loadTorch[AbstractModule[Activity, Activity, T]](path)
+      .asInstanceOf[Graph[T]]
     GraphUtils.withGraphUtils(graph)
   }
 

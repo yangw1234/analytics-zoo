@@ -113,7 +113,7 @@ trait GraphUtils[T, D <: Module[T] with GraphUtils[T, D]] {
    * This is useful for finetune a model
    */
   def freezeUpTo(names: String*): this.type = {
-    DFS(nodes(names)).foreach(_.element.freeze())
+    dfs(nodes(names)).foreach(_.element.freeze())
     this
   }
 
@@ -129,7 +129,7 @@ trait GraphUtils[T, D <: Module[T] with GraphUtils[T, D]] {
    */
   def newGraph(outputs: Seq[String]): D
 
-  private def DFS(endPoints: Seq[ModuleNode[T]]): Iterator[ModuleNode[T]] = {
+  private def dfs(endPoints: Seq[ModuleNode[T]]): Iterator[ModuleNode[T]] = {
     new Iterator[ModuleNode[T]] {
       private val stack = new mutable.Stack[ModuleNode[T]]()
       endPoints.map(stack.push)
