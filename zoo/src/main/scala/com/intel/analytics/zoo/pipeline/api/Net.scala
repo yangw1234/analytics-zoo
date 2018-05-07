@@ -73,9 +73,8 @@ object Net {
    */
   def loadBigDL[T: ClassTag](path : String,
       weightPath : String = null)(implicit ev: TensorNumeric[T])
-  : GraphUtils.GraphWithUtils[T] = {
-    val graph = ModuleLoader.loadFromFile(path, weightPath).asInstanceOf[Graph[T]]
-    GraphUtils.withGraphUtils(graph)
+  : AbstractModule[Activity, Activity, T] = {
+    ModuleLoader.loadFromFile(path, weightPath)
   }
 
   def loadTorch[T: ClassTag](path : String)(implicit ev: TensorNumeric[T]) : GraphUtils.GraphWithUtils[T] = {

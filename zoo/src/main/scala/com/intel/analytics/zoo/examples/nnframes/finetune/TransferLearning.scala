@@ -1,7 +1,7 @@
 package com.intel.analytics.zoo.examples.nnframes.finetune
 
-import com.intel.analytics.bigdl.Module
-import com.intel.analytics.bigdl.nn.CrossEntropyCriterion
+import com.intel.analytics.bigdl.{GraphUtils, Module}
+import com.intel.analytics.bigdl.nn.{CrossEntropyCriterion, Graph}
 import com.intel.analytics.bigdl.optim.{Top1Accuracy, Trigger}
 import com.intel.analytics.zoo.feature.image._
 import com.intel.analytics.bigdl.utils.{LoggerFilter, Shape}
@@ -94,8 +94,9 @@ object TransferLearning {
   private def getTransferLearningModel(preTrainedPath: String): Module[Float] = {
     // you can use Net.loadBigDL[Float](preTrainedPath).saveGraphTopology(somePath)
     // and use tensorboard to visualize the model topology and decide
-    val inception = Net
-      .loadBigDL[Float](preTrainedPath)
+    val inception = GraphUtils.withGraphUtils(
+      Net.loadBigDL[Float](preTrainedPath)
+        .asInstanceOf[Graph[Float]])
       .newGraph(output = "pool5/drop_7x7_s1") // remove layers after pool5/drop_7x7_s1
 
     inception.freezeUpTo("pool4/3x3_s2") // freeze layer pool4/3x3_s2 and the layers before it
