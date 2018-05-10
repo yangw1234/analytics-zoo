@@ -34,7 +34,7 @@ object GraphUtils {
 
   def withGraphUtils[T: ClassTag](graph: Graph[T])
         (implicit ev: TensorNumeric[T]):
-  Graph[T] with GraphUtils[T, _ <: Graph[T] with GraphUtils[T, _]] = {
+  Graph[T] with GraphUtils[T, _ <: GraphWithUtils[T]] = {
     val inputs = graph.inputs
     val outputs = graph.outputs
     val variables = graph.variables

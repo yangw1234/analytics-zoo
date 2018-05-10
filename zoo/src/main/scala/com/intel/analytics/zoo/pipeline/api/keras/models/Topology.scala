@@ -268,6 +268,11 @@ class Model[T: ClassTag] private (private val _inputs : Seq[ModuleNode[T]],
     this
   }
 
+  override def unFreeze(names: String*): Model.this.type = {
+    labor.unFreeze(names: _*)
+    this
+  }
+
   private val graph = labor.asInstanceOf[Graph[T]]
 
   override def nodes(names: Seq[String]): Seq[ModuleNode[T]] = {

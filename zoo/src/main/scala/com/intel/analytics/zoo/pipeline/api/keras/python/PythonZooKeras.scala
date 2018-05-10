@@ -18,7 +18,7 @@ package com.intel.analytics.zoo.pipeline.api.keras.python
 
 import java.util.{List => JList}
 
-import com.intel.analytics.bigdl.{Criterion, DataSet}
+import com.intel.analytics.bigdl.{Criterion, DataSet, GraphUtils}
 import com.intel.analytics.bigdl.dataset.{DataSet, LocalDataSet, MiniBatch}
 
 import scala.collection.JavaConverters._
@@ -27,9 +27,11 @@ import com.intel.analytics.bigdl.python.api.{EvaluatedResult, JTensor, PythonBig
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.nn.Graph.ModuleNode
-import com.intel.analytics.bigdl.nn.abstractnn.Activity
+import com.intel.analytics.bigdl.nn.{Graph, Module}
+import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
 import com.intel.analytics.bigdl.nn.keras.KerasLayer
 import com.intel.analytics.bigdl.transform.vision.image.{ImageFeature, ImageFeatureToMiniBatch}
+import com.intel.analytics.zoo.pipeline.api.Net
 import com.intel.analytics.zoo.pipeline.api.keras.layers._
 import com.intel.analytics.zoo.pipeline.api.keras.layers.utils.KerasUtils
 import com.intel.analytics.zoo.pipeline.api.keras.metrics.AUC
@@ -149,6 +151,21 @@ class PythonZooKeras[T: ClassTag](implicit ev: TensorNumeric[T]) extends PythonB
       logPath: String,
       backward: Boolean = false): Model[T] = {
     module.saveGraphTopology(logPath, backward)
+  }
+
+  def newGraph(model: AbstractModule[Activity, Activity, T],
+               outputs: JList[String]): GraphUtils[T, _] = {
+    model.asInstanceOf[GraphUtils[T, _]].newGraph(outputs.asScala).asInstanceOf[GraphUtils[T, _]]
+  }
+
+  def freezeUpTo(model: GraphUtils[T, _], names: JList[String]): Unit = {
+    model.freezeUpTo(names.asScala: _*)
+  }
+
+  def netLoadBigDLModule(
+          modulePath: String,
+          weightPath : String): AbstractModule[Activity, Activity, T] = {
+    GraphUtils.withGraphUtils(Net.loadBigDL[T](modulePath, weightPath).asInstanceOf[Graph[T]])
   }
 
   def createZooKerasDense(

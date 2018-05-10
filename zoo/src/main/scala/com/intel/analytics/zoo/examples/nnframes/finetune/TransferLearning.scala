@@ -38,8 +38,8 @@ import scopt.OptionParser
 object Utils {
 
   case class TrainParams(
-                          modelPath: String = "/tmp/bigdl_inception-v1_imagenet_0.4.0.model",
-                          dataPath: String = "/tmp/train_sampled",
+                          modelPath: String = "/home/yang/sources/model/bigdl_inception-v1_imagenet_0.4.0.model",
+                          dataPath: String = "/home/yang/sources/datasets/cat_dog/train_sampled",
                           batchSize: Int = 32,
                           nEpochs: Int = 2)
 
@@ -83,7 +83,7 @@ object TransferLearning {
 
 
       // val valTransformed = featureTransformer.transform(valDf)
-      val dlmodel = new NNClassifierModel(model, featureTransformer)
+//      val dlmodel = new NNClassifierModel(model, featureTransformer)
       val classifier = new NNClassifier(model, CrossEntropyCriterion[Float](), featureTransformer)
         .setFeaturesCol("image")
         .setLearningRate(0.003)

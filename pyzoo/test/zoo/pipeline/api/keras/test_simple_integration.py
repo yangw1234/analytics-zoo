@@ -112,6 +112,17 @@ class TestSimpleIntegration(ZooTestCase):
         assert remove_batch([2, 3, 4]) == [3, 4]
         assert remove_batch([[2, 6, 7], [2, 3, 4]]) == [[6, 7], [3, 4]]
 
+    def test_load_model(self):
+        from zoo.pipeline.api.net import Net
+        model = Net.loadModel("/home/yang/sources/model/bigdl_inception-v1_imagenet_0.4.0.model")
+        model2 = model.new_graph(["pool5/drop_7x7_s1"])
+        model2.freeze_up_to(["pool4/3x3_s2"])
+        model2.unfreeze()
+        import numpy as np
+        data = np.zeros([1, 3, 224, 224])
+        output = model2.forward(data)
+        print output.shape
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
