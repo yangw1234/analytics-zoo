@@ -53,6 +53,7 @@ object PerfTest {
     model: String = "/home/yang/applications/faster_rcnn_resnet101_coco_2018_01_28" +
       "/frozen_inference_graph.pb",
     classNamePath: String = "/tmp/models/coco_classname.txt",
+    inputNode: String = "ToFloat_3",
     nPartition: Int = 1)
 
   val parser = new OptionParser[PredictParam]("TFNet Object Detection Example") {
@@ -69,6 +70,9 @@ object PerfTest {
     opt[String]("model")
       .text("BigDL model")
       .action((x, c) => c.copy(model = x))
+    opt[String]("inputNode")
+      .text("inputNode")
+      .action((x, c) => c.copy(inputNode = x))
     opt[Int]('p', "partition")
       .text("number of partitions")
       .action((x, c) => c.copy(nPartition = x))
@@ -79,7 +83,7 @@ object PerfTest {
 
       val sc = NNContext.getNNContext("TFNet Object Detection Example")
 
-      val inputs = Seq("ToFloat_3:0")
+      val inputs = Seq(s"${params.inputNode}:0")
       val outputs = Seq("num_detections:0", "detection_boxes:0",
         "detection_scores:0", "detection_classes:0")
 
