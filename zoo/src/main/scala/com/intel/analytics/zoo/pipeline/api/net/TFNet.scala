@@ -31,7 +31,6 @@ class TFNet private(graphDef: Array[Byte],
             val outputNames: Seq[String])
   extends AbstractModule[Activity, Activity, Float] {
 
-
   output = {
     if (outputNames.length == 1) {
       Tensor[Float]()

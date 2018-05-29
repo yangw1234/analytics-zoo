@@ -117,6 +117,7 @@ object PerfTest {
       val copyStart = System.nanoTime()
       val localModel = modelBroad.value()
       val copyEnd = System.nanoTime()
+      val cloneTime = (copyEnd - copyStart) / 1.0e6
       logger.info(s"Model Clone time: ${1.0 * (copyEnd - copyStart) / 1e6}ms")
       val copyTransStart = System.nanoTime()
       val localToBatch = toBatchBroad.value._1.cloneTransformer()
@@ -130,7 +131,10 @@ object PerfTest {
       })
       val arr = re.toArray
       val pipelineEnd = System.nanoTime()
+      val singleForwardTime = ((pipelineEnd - pipelineStart) / 1.0e6) / arr.length
       logger.info(s"pipeline calc time: ${1.0 * (pipelineEnd - pipelineStart) / 1e6}ms")
+      logger.info(s"single forward time: ${singleForwardTime}")
+      logger.info(s"clone time ration ${cloneTime / singleForwardTime}")
       arr.toIterator
     })
     ImageFrame.rdd(result)
