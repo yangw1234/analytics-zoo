@@ -79,10 +79,6 @@ if __name__ == "__main__":
     output_path = options.outputPath
     
     print "Option parsing finished."
-    
-    # # create spark conf
-    # conf = create_spark_conf()
-    # sc = SparkContext(appName="short_text_classifier", conf=conf)
 
     sc = init_nncontext()
     
@@ -104,15 +100,7 @@ if __name__ == "__main__":
           .map(lambda line: split_line(line)) \
           .map(lambda (words, label): (words_to_ids(words, broadcast_word2id.value, max_sentence_length), label)) \
           .map(lambda (ids, label): to_sample(ids, broadcast_drop.value, label)).take(128 * 5))
-        # print(test_rdd.take(2))
-        # a = test_rdd.first()
-        # # print(type(a))
         print(test_rdd.count())
-        
-        # init bigdl
-        # redire_spark_logs()
-        # show_bigdl_info_logs()
-        # init_engine()
         
         # # load model to bigdl
         # model_def = model_path + "/model.pb"
@@ -134,48 +122,11 @@ if __name__ == "__main__":
         for result in results:
             print(result)
 
-    elif options.action == "prediction":
-        sqlContext = SQLContext(sc)
+        # support variable batch size
+        # use
+        # batch_size = tf.placeholder_with_default(128)
+        # input_x = tf.train.batch(input_x, batch_size=batch_size)
+        # or use
+        # input_x = tf.placeholder(dtype=tf.float32, shape=(None, seq_length))
 
-        # load word2id
-        sc.addFile(word2id_path)
-        word2id = load_word2id("word2id")
-        
-        # create broadcast variable
-        drop_percent = 1.0
-        drop = JTensor.from_ndarray(np.full([300], drop_percent))
-        broadcast_drop = sc.broadcast(drop)
-        broadcast_word2id = sc.broadcast(word2id)
-
-        # create test_rdd
-        test_dataset = sc.textFile(data_path).map(lambda line: line.split("\t")) \
-            .filter(lambda columns: len(columns) >= 3)
-        print(test_dataset.first())
-        test_rdd = test_dataset.map(lambda columns: \
-            to_predict_sample(columns[2], broadcast_word2id.value, max_sentence_length, broadcast_drop.value))
-        print(test_rdd.count())
-        
-        # init bigdl
-        # redire_spark_logs()
-        # show_bigdl_info_logs()
-        # init_engine()
-        
-        # # load model to bigdl
-        # model_def = model_path + "/model.pb"
-        # model_variable = model_path + "/model.bin"
-        # inputs = ["input_x", "dropout_keep_prob"]
-        # outputs = ["textCnn/output/probs"]
-        # model = Model.load_tensorflow(model_def, inputs, outputs, byte_order = "little_endian", bigdl_type="float", bin_file=model_variable)
-        #
-        folder = "/home/yang/sources/zoo/pyzoo/analytics-zoo-rnn"
-        model = TFNet.from_export_folder(folder)
-
-        # evaluate model
-        print("Starting prediction")
-        start = time()
-        results = model.predict_distributed(test_rdd, batch_size).map(lambda result: np.argmax(result))
-        test_dataset.zip(results).map(lambda (columns, label): columns[0] + "\t" + columns[1] + "\t" + str(label)).saveAsTextFile(output_path)
-        # results = results.zip(test_dataset)
-        stop = time()
-        print ("Evaluation finished. Cost " + str(stop - start) + " seconds.")
-
+        # make dropout_keep_prob a const
