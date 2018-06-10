@@ -1,8 +1,8 @@
 import tensorflow as tf
 
 with tf.Session(config=tf.ConfigProto(allow_soft_placement = True)) as sess:
-    new_saver = tf.train.import_meta_graph("/home/yang/sources/datasets/sougou/textcnn/model-7000.meta")
-    new_saver.restore(sess, "/home/yang/sources/datasets/sougou/textcnn/model-7000")
+    new_saver = tf.train.import_meta_graph("/home/yang/sources/datasets/sg/textcnn/model-7000.meta")
+    new_saver.restore(sess, "/home/yang/sources/datasets/sg/textcnn/model-7000")
 
     # tf.summary.FileWriter("./graph", sess.graph)
 
