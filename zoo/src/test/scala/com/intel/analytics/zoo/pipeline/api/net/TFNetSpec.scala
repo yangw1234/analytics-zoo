@@ -138,6 +138,15 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
     gradInput.size() should be (input.size())
   }
 
+  "TFNet " should "perf" in {
+    val net = TFNet("/tmp/models/tfnet")
+    val input = Tensor[Float](2, 224, 224, 3).rand()
+    var output = net.forward(input)
+    net.backward(input, output)
+    output = net.forward(input).toTensor[Float].clone()
+    val gradInput = net.backward(input, output).toTensor[Float].clone()
+  }
+
 }
 
 class TFNetSerialTest extends ModuleSerializationTest {

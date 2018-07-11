@@ -69,6 +69,8 @@ class TFNet(graphDef: TFGraphHolder,
 
   private def graph = graphDef.tfGraph
 
+  var tempTensorOpt = true
+
   val inputNames: Array[String] = graphMeta.inputNames
   private val inputTypes = inputNames.map(name2type)
 
@@ -170,6 +172,7 @@ class TFNet(graphDef: TFGraphHolder,
   }
 
   override def updateOutput(input: Activity): Activity = {
+    val start = System.nanoTime()
     val runner = sess.runner()
 
     require(activityLength(input) == inputTypes.length,
@@ -200,7 +203,10 @@ class TFNet(graphDef: TFGraphHolder,
       graphMeta.tempTensors.map(_.map(runner.fetch))
     }
 
+    val start1 = System.nanoTime()
     val outputs = runner.run()
+    val end1 = System.nanoTime()
+    println(s"forward session run time ${(end1 - start1) / 1.0e6}")
 
     outputs.asScala.zipWithIndex.foreach { case (t, idx) =>
       if (idx < outputNames.length) {
@@ -219,16 +225,18 @@ class TFNet(graphDef: TFGraphHolder,
     // clean up model output tensorflow tensors
     outputs.asScala.slice(0, outputNames.length).foreach(_.close())
     // tempTensors will be cleaned up after backward
-
+    val end = System.nanoTime()
+    println(s"forward time is ${(end - start) / 1.0e6}")
     output
   }
 
   override def updateGradInput(input: Activity, gradOutput: Activity): Activity = {
 
+    val start = System.nanoTime()
+
     if (graphMeta.variables.isEmpty) {
       generateZeroGrad(input)
     } else {
-
       val runner = sess.runner()
 
       require(activityLength(input) == inputTypes.length,
@@ -249,10 +257,10 @@ class TFNet(graphDef: TFGraphHolder,
       }
 
       // feed temp tensors fetched during forward
-      val tempTensorNames = graphMeta.tempTensors.get
-      tempTensorNames.zipWithIndex.foreach{ case (name, idx) =>
-        runner.feed(name, tempTensors(idx))
-      }
+//      val tempTensorNames = graphMeta.tempTensors.get
+//      tempTensorNames.zipWithIndex.foreach{ case (name, idx) =>
+//        runner.feed(name, tempTensors(idx))
+//      }
 
       // fetch grad inputs
       val gradInputNames = graphMeta.gradInputs.get
@@ -262,7 +270,11 @@ class TFNet(graphDef: TFGraphHolder,
       val gradVariableNames = graphMeta.gradVariables.get
       gradVariableNames.foreach(runner.fetch)
 
-      val fetches = runner.run().asScala
+      val start1 = System.nanoTime()
+      val fetchesJava = runner.run().asScala
+      val end1 = System.nanoTime()
+      val fetches = fetchesJava
+      println(s"backward session run time ${(end1 - start1) / 1.0e6}")
       val (i, v) = fetches.splitAt(gradInputNames.length)
 
       v.map(_.asInstanceOf[TTensor[Float]])
@@ -284,10 +296,14 @@ class TFNet(graphDef: TFGraphHolder,
 
       // grad weights will be cleaned up after acc
     }
+
+    val end = System.nanoTime()
+    println(s"update gradInput time is ${(end - start)/1.0e6}")
     gradInput
   }
 
   override def accGradParameters(input: Activity, gradOutput: Activity): Unit = {
+    val start = System.nanoTime()
     this.gradWeights.zipWithIndex.map { case (gradWeight, idx) =>
       val gradWeightBuffer = this.gradWeightsBuffer(idx)
       val tfTensor = this.gradWeightsTTensors(idx)
@@ -300,6 +316,8 @@ class TFNet(graphDef: TFGraphHolder,
 
     // clean up grad weights tf tensors
     this.gradWeightsTTensors.foreach(_.close())
+    val end = System.nanoTime()
+    println(s"accGradParameters time is ${(end - start)/1.0e6}")
   }
 
   override def reset(): Unit = {
