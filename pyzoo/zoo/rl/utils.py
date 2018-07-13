@@ -1,0 +1,80 @@
+#
+# Copyright 2018 Analytics Zoo Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+import numpy as np
+import scipy.signal
+from bigdl.util.common import JTensor, Sample
+from bigdl.models.utils.model_broadcast import broadcast_model
+
+
+def _discount(x, gamma):
+    return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
+
+
+def discounted_sum_of_future_rewards(rewards, gamma):
+    result = _discount(rewards, gamma)
+    return result
+
+
+def normalize(advantages, small_eps=1e-8):
+    return (advantages - advantages.mean())/(advantages.std() + small_eps)
+
+
+def obs_act_adv_to_sample(x, action_space, sparse=True):
+    if sparse:
+        return _to_sample_sparse(x, action_space)
+    else:
+        return _to_sample_dense(x, action_space)
+
+def obs_act_adv_old_prob_to_sample(x, action_space):
+    # adv = np.zeros(action_space)
+    # adv[x[1]] = x[2]
+    # # old_prob = np.zeros(action_space)
+    # # old_prob[x[1]] = x[3]
+    return Sample.from_ndarray(x[0], [np.array(float(x[1])), np.array(x[2]), np.array(x[3])])
+
+def _to_sample_sparse(x, action_space):
+    input_tensor = JTensor.from_ndarray(x[0]) #obs
+    values = np.array([x[2]]) # adv
+    indices = np.array([x[1]]) # act
+    shape = np.array([action_space])
+    target_tensor = JTensor.sparse(values, indices, shape, bigdl_type="float")
+    return Sample.from_jtensor(input_tensor, target_tensor)
+
+def _to_sample_dense(x, action_space):
+    label = np.zeros(action_space)
+    label[x[1]] = x[2]
+    return Sample.from_ndarray(x[0], label)
+
+
+class SampledTrajs(object):
+    def __init__(self, sc, agents, policy, num_steps_per_part=None, num_trajs_per_part=None):
+        self.agents = agents
+        self.policy = policy
+        self.sc = sc
+        self.num_steps_per_part = num_steps_per_part
+        self.num_trajs_per_part = num_trajs_per_part
+
+    def __enter__(self):
+        broadcasted = broadcast_model(self.sc, self.policy)
+        steps = self.num_steps_per_part
+        trajs = self.num_trajs_per_part
+        self.samples = self.agents\
+            .flatMap(lambda agent: agent.sample(broadcasted.value, num_steps=steps, num_trajs=trajs)).cache()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.samples.unpersist()
+

@@ -42,6 +42,7 @@ import com.intel.analytics.zoo.pipeline.api.keras.metrics.{AUC, Accuracy, Top5Ac
 import com.intel.analytics.zoo.pipeline.api.keras.models.{KerasNet, Model, Sequential}
 import com.intel.analytics.zoo.pipeline.api.keras.objectives.{MeanAbsoluteError, SparseCategoricalCrossEntropy}
 import com.intel.analytics.zoo.pipeline.api.net.{GraphNet, NetUtils, TFNet}
+import com.intel.analytics.zoo.pipeline.api.torch.CPPOCriterion
 import org.apache.spark.api.java.JavaRDD
 
 import scala.collection.mutable.ArrayBuffer
@@ -1124,5 +1125,13 @@ class PythonZooKeras[T: ClassTag](implicit ev: TensorNumeric[T]) extends PythonB
   def createZooKerasTop5Accuracy(
       zeroBasedLabel: Boolean = true): ValidationMethod[T] = {
     new Top5Accuracy[T](zeroBasedLabel)
+  }
+
+  def createCPPOCriterion(
+            epsilon: Double,
+            entropyCoeff: Double,
+            klTarget: Double,
+            initBeta: Double): CPPOCriterion[T] = {
+    CPPOCriterion[T](epsilon, entropyCoeff, klTarget, initBeta)
   }
 }
