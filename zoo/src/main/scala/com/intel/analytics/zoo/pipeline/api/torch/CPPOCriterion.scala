@@ -30,7 +30,7 @@ class CPPOCriterion[T: ClassTag](
                                            initBeta: Double = 0.0
                                          )
                                          (implicit ev: TensorNumeric[T])
-  extends AbstractCriterion[Table, Table, T] {
+  extends AbstractCriterion[Table, Tensor[T], T] {
 
   private val ratio: Tensor[T] = Tensor[T]()
   private val clippedRatio: Tensor[T] = Tensor[T]()
@@ -50,17 +50,18 @@ class CPPOCriterion[T: ClassTag](
   private var oldLogp: Tensor[T] = null
 
 
-  override def updateOutput(input: Table, target: Table): T = {
+  override def updateOutput(input: Table, target: Tensor[T]): T = {
 
     val mean = input[Tensor[T]](1)
     val logStd = input[Tensor[T]](2)
 
     val batchSize = mean.size(1)
 
-    val actions = target[Tensor[T]](1)
-    val advantage = target[Tensor[T]](2).view(batchSize)
-    val oldMean = target[Tensor[T]](3)
-    val oldLogStd = target[Tensor[T]](4)
+    val actionSize = mean.size(2)
+    val actions = target.narrow(2, 1, actionSize).clone() // batchSize x actionSize
+    val advantage = target.select(2, actionSize + 1).clone() // batchSize x 1
+    val oldMean = target.narrow(2, actionSize + 2, actionSize).clone() // batchSize X actionSize
+    val oldLogStd = target.narrow(2, 2 * actionSize + 2, actionSize).clone() // batchSize X actionSize
 
     currentDist = new DiagGaussian[T](mean, logStd)
     oldDist = new DiagGaussian[T](oldMean, oldLogStd)
@@ -94,7 +95,7 @@ class CPPOCriterion[T: ClassTag](
     output
   }
 
-  override def updateGradInput(input: Table, target: Table): Table = {
+  override def updateGradInput(input: Table, target: Tensor[T]): Table = {
     mask.resizeAs(surr1).le(surr1, surr2)
 
     val mean = input[Tensor[T]](1)
@@ -102,10 +103,11 @@ class CPPOCriterion[T: ClassTag](
 
     val batchSize = mean.size(1)
 
-    val actions = target[Tensor[T]](1)
-    val advantage = target[Tensor[T]](2).view(batchSize)
-    val oldMean = target[Tensor[T]](3)
-    val oldLogStd = target[Tensor[T]](4)
+    val actionSize = mean.size(2)
+    val actions = target.narrow(2, 1, actionSize).clone() // batchSize x actionSize
+    val advantage = target.select(2, actionSize + 1).clone() // batchSize x 1
+    val oldMean = target.narrow(2, actionSize + 2, actionSize).clone() // batchSize X actionSize
+    val oldLogStd = target.narrow(2, 2 * actionSize + 2, actionSize).clone() // batchSize X actionSize
 
 
     gradMean.resizeAs(actions).copy(actions).sub(mean)

@@ -1,7 +1,8 @@
 import tensorflow as tf
 import matplotlib.pyplot as plt
+from zoo.pipeline.api.keras.models import Model
 
-from bigdl.nn.layer import *
+from zoo.pipeline.api.keras.layers import *
 from bigdl.nn.criterion import *
 from bigdl.optim.optimizer import *
 from bigdl.util.common import *
@@ -27,24 +28,21 @@ METHOD = [
 def build_model(state_size, action_size):
     # critic
 
-    critic_input = Input()
-    v_l1 = Linear(state_size, 100)(critic_input)
-    a_relu1 = ReLU()(v_l1)
-    state_value = Linear(100, 1)(a_relu1)
+    critic_input = Input(shape=(state_size, ))
+    v_l1 = Dense(100, activation="relu")(critic_input)
+    state_value = Dense(1)(v_l1)
 
     # actor
-    actor_input = Input()
-    a_l1 = Linear(state_size, 100)(actor_input)
-    a_relu1 = ReLU()(a_l1)
+    actor_input = Input(shape=(state_size, ))
+    a_l1 = Dense(100, activation="relu")(actor_input)
 
-    a_l2_mu = Linear(100, action_size)(a_relu1)
-    a_tanh_mu = Tanh()(a_l2_mu)
-    mu = MulConstant(2.0)(a_tanh_mu)
+    a_l2_mu = Dense(action_size, activation="tanh")(a_l1)
+    mu = MulConstant(2.0)(a_l2_mu)
 
-    a_l2_sigma = Linear(100, action_size)(a_relu1)
-    sigma = SoftPlus()(a_l2_sigma)
+    a_l2_sigma = Dense(action_size, activation="softplus")(a_l1)
+    sigma = a_l2_sigma
 
-    input = Input()
+    input = Input(shape=(state_size, ))
     critic = Model([critic_input], [state_value])(input)
     actor = Model([actor_input], [mu, sigma])(input)
 
@@ -58,46 +56,30 @@ class PPO(object):
     def __init__(self, state_size, action_size, sc):
         self.sc = sc
         self.model = build_model(state_size, action_size)
-        self.predict_action_mu = Sequential()
-        self.predict_action_mu.add(self.model)
-        self.predict_action_mu.add(SelectTable(1))
-        self.predict_action_mu.add(SelectTable(1))
-
-        self.predict_action_sigma = Sequential()
-        self.predict_action_sigma.add(self.model)
-        self.predict_action_sigma.add(SelectTable(1))
-        self.predict_action_sigma.add(SelectTable(2))
-
-        self.predict_value = Sequential()
-        self.predict_value.add(self.model)
-        self.predict_value.add(SelectTable(2))
         self.optimizer = None
         self.criterion = ParallelCriterion()
-        self.criterion.add(ContinuousPPOCriterion(), 1.0)
-        self.criterion.add(MSECriterion(), 1.0)
+        self.criterion.add(CPPOCriterion(epsilon=0.2), 1.0)
+        self.criterion.add(MSECriterion(), 2.0)
 
     def update(self, data):
-
         def to_sample(x):
-            return Sample.from_ndarray(x[0], [[x[1], x[2], x[3], x[4]], x[2]])
+            return Sample.from_ndarray(x[0], [np.stack([x[1], x[2], x[3], x[4]]), x[2]])
 
         rdd = self.sc.parallelize(data).map(lambda x: to_sample(x))
         self.optimizer = Optimizer.create(model=self.model,
                                           training_set=rdd,
                                           criterion=self.criterion,
-                                          optim_method=RMSprop(learningrate=0.005),
+                                          optim_method=Adam(learningrate=0.0001),
                                           end_trigger=MaxIteration(10),
                                           batch_size=BATCH)
-        self.model = self.optimizer.optimize()
+        self.optimizer.optimize()
 
     def choose_action(self, s):
         s = s[np.newaxis, :]
-        mu = self.predict_action_mu.predict(s)
-        mu = np.squeeze(mu, 0)
-        sigma = self.predict_action_sigma.predict(s)
-        sigma = np.squeeze(sigma, 0)
-        state_v = self.predict_value.predict(s)
-        state_v = np.squeeze(state_v, 0)
+        result = self.model.forward(s)
+        mu = np.squeeze(result[0][0], 0)
+        sigma = np.squeeze(result[0][1], 0)
+        state_v = np.squeeze(result[1], 0)
         return mu, sigma, state_v
 
 sc = init_nncontext()
@@ -146,7 +128,7 @@ for ep in range(EP_MAX):
     if ep == 0: all_ep_r.append(ep_r)
     else: all_ep_r.append(all_ep_r[-1]*0.9 + ep_r*0.1)
     print(
-        'Ep: %i' % ep,
+        'SimplePPO: Ep: %i' % ep,
         "|Ep_r: %i" % ep_r,
         ("|Lam: %.4f" % METHOD['lam']) if METHOD['name'] == 'kl_pen' else '',
     )
