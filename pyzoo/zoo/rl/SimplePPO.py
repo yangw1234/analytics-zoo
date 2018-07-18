@@ -12,7 +12,7 @@ from zoo.pipeline.api.torch.criterion import *
 import gym
 
 EP_MAX = 1000
-EP_LEN = 200
+EP_LEN = 320
 GAMMA = 0.9
 A_LR = 0.0001
 C_LR = 0.0002
@@ -40,11 +40,11 @@ def build_model(state_size, action_size):
     mu = MulConstant(2.0)(a_l2_mu)
 
     a_l2_sigma = Dense(action_size, activation="softplus")(a_l1)
-    sigma = a_l2_sigma
+    log_sigma = Log()(a_l2_sigma)
 
     input = Input(shape=(state_size, ))
     critic = Model([critic_input], [state_value])(input)
-    actor = Model([actor_input], [mu, sigma])(input)
+    actor = Model([actor_input], [mu, log_sigma])(input)
 
     model = Model([input], [actor, critic])
 
@@ -60,27 +60,33 @@ class PPO(object):
         self.criterion = ParallelCriterion()
         self.criterion.add(CPPOCriterion(epsilon=0.2), 1.0)
         self.criterion.add(MSECriterion(), 2.0)
+        self.iter = 0
 
     def update(self, data):
         def to_sample(x):
-            return Sample.from_ndarray(x[0], [np.stack([x[1], x[2], x[3], x[4]]), x[2]])
+            return Sample.from_ndarray(x[0], [np.stack([x[1], x[2] - x[5], x[3], x[4]]), x[2]])
 
         rdd = self.sc.parallelize(data).map(lambda x: to_sample(x))
-        self.optimizer = Optimizer.create(model=self.model,
-                                          training_set=rdd,
-                                          criterion=self.criterion,
-                                          optim_method=Adam(learningrate=0.0001),
-                                          end_trigger=MaxIteration(10),
-                                          batch_size=BATCH)
+        if self.optimizer is None:
+            self.optimizer = Optimizer.create(model=self.model,
+                                              training_set=rdd,
+                                              criterion=self.criterion,
+                                              optim_method=Adam(learningrate=0.0001),
+                                              end_trigger=MaxIteration(self.iter + 10),
+                                              batch_size=BATCH)
+        else:
+            self.optimizer.set_traindata(rdd, BATCH)
+            self.optimizer.set_end_when(MaxIteration(self.iter + 10))
         self.optimizer.optimize()
+        self.iter = self.iter + 10
 
     def choose_action(self, s):
         s = s[np.newaxis, :]
         result = self.model.forward(s)
         mu = np.squeeze(result[0][0], 0)
-        sigma = np.squeeze(result[0][1], 0)
+        log_sigma = np.squeeze(result[0][1], 0)
         state_v = np.squeeze(result[1], 0)
-        return mu, sigma, state_v
+        return mu, log_sigma, state_v
 
 sc = init_nncontext()
 env = gym.make('Pendulum-v0').unwrapped
@@ -91,18 +97,20 @@ all_ep_r = []
 
 for ep in range(EP_MAX):
     s = env.reset()
-    buffer_s, buffer_a, buffer_r, buffer_mu, buffer_sigma = [], [], [], [], []
+    buffer_s, buffer_a, buffer_r, buffer_mu, buffer_log_sigma, buffer_v = [], [], [], [], [], []
     ep_r = 0
     for t in range(EP_LEN):    # in one episode
         env.render()
-        mu, sigma, state_v = ppo.choose_action(s)
-        a = np.random.multivariate_normal(mu, np.diag(sigma))
+        mu, log_sigma, state_v = ppo.choose_action(s)
+        a = np.random.multivariate_normal(mu, np.diag(np.exp(log_sigma)))
+        a = np.clip(a, -2, 2)
         s_, r, done, _ = env.step(a)
         buffer_s.append(s)
         buffer_a.append(a)
         buffer_r.append((r+8)/8)    # normalize reward, find to be useful
         buffer_mu.append(mu)
-        buffer_sigma.append(sigma)
+        buffer_log_sigma.append(log_sigma)
+        buffer_v.append(state_v)
 
         s = s_
         ep_r += r
@@ -118,13 +126,14 @@ for ep in range(EP_MAX):
 
             data = []
             for i in range(len(buffer_s)):
-                data.append((buffer_s[i], buffer_a[i], discounted_r[i], buffer_mu[i], buffer_sigma[i]))
+                data.append((buffer_s[i], buffer_a[i], discounted_r[i], buffer_mu[i], buffer_log_sigma[i], buffer_v[i]))
 
             # bs, ba, br = np.vstack(buffer_s), np.vstack(buffer_a), np.array(discounted_r)[:, np.newaxis]
             # b_mu = np.vstack(buffer_mu)
             # b_sigma = np.vstack(buffer_sigma)
             # buffer_s, buffer_a, buffer_r = [], [], []
             ppo.update(data)
+            buffer_s, buffer_a, buffer_r, buffer_mu, buffer_log_sigma, buffer_v = [], [], [], [], [], []
     if ep == 0: all_ep_r.append(ep_r)
     else: all_ep_r.append(all_ep_r[-1]*0.9 + ep_r*0.1)
     print(
