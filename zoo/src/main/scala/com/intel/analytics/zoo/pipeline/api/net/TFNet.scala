@@ -15,11 +15,15 @@
  */
 package com.intel.analytics.zoo.pipeline.api.net
 
-import java.io.{File, FileInputStream, InputStream}
+import java.io.{File, FileInputStream, FileOutputStream, InputStream}
+import java.net.URL
 import java.nio._
+import java.nio.channels.{Channels, FileChannel, ReadableByteChannel}
+import java.nio.file.{Files, Path, Paths}
 
 import com.intel.analytics.bigdl.Module
 import com.intel.analytics.bigdl.dataset.{PaddingParam, Sample}
+import com.intel.analytics.bigdl.mkl.Loader
 import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
@@ -58,6 +62,9 @@ class TFNet(private val graphDef: TFGraphHolder,
   protected val module: Module[Float] = this
   implicit val ev = TensorNumeric.NumericFloat
   implicit val tag: ClassTag[Float] = ClassTag.Float
+
+  println("loaded")
+  val logger = LoggerFactory.getLogger(getClass)
 
   // todo if an exception is thrown during forward or backward, there will be memory leak
   // maybe create a resource manager to handle tensor creation and destruction
@@ -209,6 +216,7 @@ class TFNet(private val graphDef: TFGraphHolder,
   private lazy val gradWeightTFTensors = new Array[TTensor[_]](gradWeights.length)
 
   override def updateOutput(input: Activity): Activity = {
+    val forwardStartTime = System.nanoTime()
     try {
       val runner = sess.runner()
 
@@ -259,7 +267,11 @@ class TFNet(private val graphDef: TFGraphHolder,
         graphMeta.tempTensors.map(_.map(runner.fetch))
       }
 
+      val sessStartTime = System.nanoTime()
       val outputs = runner.run()
+      val sessEndTime = System.nanoTime()
+      logger.info(s"tensorflow session run ${(sessEndTime - sessStartTime) / 1.0e6}ms")
+
 
       outputs.asScala.zipWithIndex.foreach { case (t, idx) =>
         if (idx < outputNames.length) {
@@ -281,6 +293,9 @@ class TFNet(private val graphDef: TFGraphHolder,
       // clean up model output tensorflow tensors
       emptyTFTensorArray(outputs.asScala.slice(0, outputNames.length))
       // tempTensors will be cleaned up after backward
+      val forwardEndTime = System.nanoTime()
+
+      logger.info(s"tfnet forward time ${(forwardEndTime - forwardStartTime) / 1.0e6}ms")
 
       output
     } catch {
@@ -567,6 +582,68 @@ class TFNet(private val graphDef: TFGraphHolder,
 }
 
 object TFNet {
+
+  def init(): Unit = {
+    // TODO for windows, we don't create bigquant.native dir
+    val tempDir = Files.createTempDirectory("tensorflow.native.")
+    copyAll(tempDir, "iomp5")
+    copyAll(tempDir, "mklml_intel")
+    copyAll(tempDir, "tensorflow_jni")
+    copyAll(tempDir, "tensorflow_framework")
+    loadLibrary("iomp5", tempDir)
+    loadLibrary("mklml_intel", tempDir)
+    loadLibrary("tensorflow_jni", tempDir)
+    loadLibrary("tensorflow_framework", tempDir)
+    // deleteAll(tempDir);
+  }
+
+  private def libraryName(name: String) = {
+    val os = System.getProperty("os.name").toLowerCase
+    var suffix = ".so"
+    if (os.contains("mac")) suffix = ".dylib"
+    else if (os.contains("win")) suffix = ".dll"
+    "lib" + name + suffix
+  }
+
+  private def copyAll(tempDir: Path, name: String) = {
+    val library = libraryName(name)
+    val src = resource(library)
+    copyLibraryToTemp(src, library, tempDir)
+    src.close()
+  }
+
+  private def resource(name: String) = {
+    val url = classOf[TFNet].getResource("/com/intel/analytics/zoo/pipeline/api/net/" + name)
+    if (url == null) throw new Error("Can't find the library " + name + " in the resource folder.")
+    val in = classOf[Loader].getResourceAsStream(
+      "/com/intel/analytics/zoo/pipeline/api/net/" + name)
+    val src = Channels.newChannel(in)
+    src
+  }
+
+  private def copyLibraryToTemp(src: ReadableByteChannel, name: String, tempDir: Path) = {
+    val tempFile = new File(tempDir.toFile + File.separator + name)
+    val dst = new FileOutputStream(tempFile)
+    try {
+      val channel = dst.getChannel
+      channel.transferFrom(src, 0, Long.MaxValue)
+    } finally {
+      dst.close()
+    }
+  }
+
+  private def loadLibrary(name: String, tempDir: Path) = {
+    val path = tempDir.toString + File.separator + libraryName(name)
+    System.load(path)
+  }
+
+  try {
+    init()
+    println("tensorflow loaded")
+  } catch {
+    case e: Throwable =>
+      println(e)
+  }
 
   @transient
   private lazy val inDriver = NetUtils.isDriver

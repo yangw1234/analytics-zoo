@@ -16,9 +16,11 @@
 package com.intel.analytics.zoo.pipeline.api.net
 
 
+import com.intel.analytics.bigdl.dataset.Sample
 import com.intel.analytics.bigdl.nn.abstractnn.AbstractModule
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.utils.{LayerException, T}
+import com.intel.analytics.zoo.common.NNContext
 import com.intel.analytics.zoo.pipeline.api.Net
 import com.intel.analytics.zoo.pipeline.api.keras.ZooSpecHelper
 import com.intel.analytics.zoo.pipeline.api.keras.serializer.ModuleSerializationTest
@@ -136,6 +138,37 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
     val gradInput = net.backward(input, output).toTensor[Float].clone()
 
     gradInput.size() should be (input.size())
+  }
+
+  "TFNet " should "work with inception" in {
+    val net = TFNet("/tmp/models/tfnet")
+    val input = Tensor[Float](2, 224, 224, 3).rand()
+    for (i <- 0 to 100) {
+      val output = net.forward(input).toTensor[Float].clone()
+    }
+
+  }
+
+  "TFNet" should "predict" in {
+    val conf = new SparkConf().setAppName("Fine tuning Example").setMaster("local[4]")
+
+    import com.intel.analytics.zoo.common.NNContext
+    import com.intel.analytics.bigdl.tensor.Tensor
+    import com.intel.analytics.bigdl.dataset.Sample
+    import com.intel.analytics.zoo.pipeline.api.net.TFNet
+    val sc = NNContext.initNNContext()
+
+    val data = for (i <- 1 to 5000) yield {
+      Tensor[Float](224, 224, 3).rand()
+    }
+    val rdd = sc.parallelize(data, 28)
+    val dataset = rdd.map(t => Sample[Float](t))
+    val net = TFNet("/workspace/sources/tfnet")
+    val start = System.nanoTime()
+    val result = net.predict(dataset, batchSize = 28 * 4)
+    result.map(x => 1).reduce((x, y) => 1)
+    val end = System.nanoTime()
+    println(s"throughput is ${5000.0 * 1e9/ (end - start)}")
   }
 
 }
