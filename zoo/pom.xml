@@ -242,7 +242,7 @@
         </dependency>
         <dependency>
             <groupId>org.tensorflow</groupId>
-            <artifactId>tensorflow</artifactId>
+            <artifactId>libtensorflow</artifactId>
             <version>1.10.0</version>
         </dependency>
         <dependency>
@@ -250,11 +250,11 @@
             <artifactId>proto</artifactId>
             <version>1.10.0</version>
         </dependency>
-        <!--<dependency>-->
-            <!--<groupId>org.tensorflow</groupId>-->
-            <!--<artifactId>libtensorflow_jni_mkl</artifactId>-->
-            <!--<version>1.10.0</version>-->
-        <!--</dependency>-->
+        <dependency>
+            <groupId>org.tensorflow</groupId>
+            <artifactId>libtensorflow_jni_mkl</artifactId>
+            <version>1.10.0</version>
+        </dependency>
     </dependencies>
 
     <build>
