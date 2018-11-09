@@ -41,6 +41,8 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 import scala.reflect.ClassTag
+import scala.util.control.NonFatal
+
 
 /**
  * [[TFNet]] wraps a tensorflow subgraph as a layer, and use tensorflow to
@@ -62,9 +64,6 @@ class TFNet(private val graphDef: TFGraphHolder,
   protected val module: Module[Float] = this
   implicit val ev = TensorNumeric.NumericFloat
   implicit val tag: ClassTag[Float] = ClassTag.Float
-
-  println("loaded")
-  val logger = LoggerFactory.getLogger(getClass)
 
   // todo if an exception is thrown during forward or backward, there will be memory leak
   // maybe create a resource manager to handle tensor creation and destruction
@@ -583,18 +582,14 @@ class TFNet(private val graphDef: TFGraphHolder,
 
 object TFNet {
 
-  def init(): Unit = {
-    // TODO for windows, we don't create bigquant.native dir
+  val logger = LoggerFactory.getLogger(getClass)
+
+  private def init(): Unit = {
     val tempDir = Files.createTempDirectory("tensorflow.native.")
-    copyAll(tempDir, "iomp5")
-    copyAll(tempDir, "mklml_intel")
-    copyAll(tempDir, "tensorflow_jni")
-    copyAll(tempDir, "tensorflow_framework")
-    loadLibrary("iomp5", tempDir)
-    loadLibrary("mklml_intel", tempDir)
-    loadLibrary("tensorflow_jni", tempDir)
-    loadLibrary("tensorflow_framework", tempDir)
-    // deleteAll(tempDir);
+    val library_names = Array("iomp5", "mklml_intel",
+      "tensorflow_jni", "tensorflow_framework")
+    copyAll(tempDir, library_names)
+    loadLibrary(library_names, tempDir)
   }
 
   private def libraryName(name: String) = {
@@ -605,18 +600,21 @@ object TFNet {
     "lib" + name + suffix
   }
 
-  private def copyAll(tempDir: Path, name: String) = {
-    val library = libraryName(name)
-    val src = resource(library)
-    copyLibraryToTemp(src, library, tempDir)
-    src.close()
+  private def copyAll(tempDir: Path, names: Array[String]) = {
+    names.map(libraryName)
+      .foreach { lib =>
+        val src = resource(lib)
+        copyLibraryToTemp(src, lib, tempDir)
+        src.close()
+      }
   }
 
   private def resource(name: String) = {
-    val url = classOf[TFNet].getResource("/com/intel/analytics/zoo/pipeline/api/net/" + name)
+    val resourcePath = "/com/intel/analytics/zoo/pipeline/api/net/" + name
+    val url = classOf[TFNet].getResource(resourcePath)
     if (url == null) throw new Error("Can't find the library " + name + " in the resource folder.")
-    val in = classOf[Loader].getResourceAsStream(
-      "/com/intel/analytics/zoo/pipeline/api/net/" + name)
+    val in = classOf[TFNet].getResourceAsStream("/com/intel/analytics/zoo/pipeline/api/net/" + name)
+
     val src = Channels.newChannel(in)
     src
   }
@@ -632,17 +630,19 @@ object TFNet {
     }
   }
 
-  private def loadLibrary(name: String, tempDir: Path) = {
-    val path = tempDir.toString + File.separator + libraryName(name)
-    System.load(path)
+  private def loadLibrary(names: Array[String], tempDir: Path) = {
+    val prefix = tempDir.toString + File.separator
+    names.
+      map(prefix + libraryName(_))
+      .foreach(System.load)
   }
 
   try {
     init()
-    println("tensorflow loaded")
+    logger.info("MKL TensorFlow loaded")
   } catch {
-    case e: Throwable =>
-      println(e)
+    case NonFatal(e) =>
+      logger.warn("loading mkl TensorFlow failed, fallback to normal TensorFlow", e)
   }
 
   @transient
