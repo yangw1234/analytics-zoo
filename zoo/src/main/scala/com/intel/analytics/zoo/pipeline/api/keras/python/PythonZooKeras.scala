@@ -21,6 +21,7 @@ import java.util.{List => JList, Map => JMap}
 
 import com.intel.analytics.bigdl.Criterion
 import com.intel.analytics.bigdl.dataset.{DataSet, LocalDataSet, MiniBatch}
+import com.intel.analytics.bigdl.dataset.{PaddingParam, Sample => BSample, SampleToMiniBatch}
 
 import scala.collection.JavaConverters._
 import com.intel.analytics.bigdl.optim._
@@ -42,7 +43,8 @@ import com.intel.analytics.zoo.pipeline.api.keras.objectives._
 import org.apache.spark.api.java.JavaRDD
 import com.intel.analytics.zoo.common.PythonZoo
 import com.intel.analytics.zoo.feature.text.TextSet
-import com.intel.analytics.zoo.pipeline.api.net.GraphNet
+import com.intel.analytics.zoo.pipeline.api.net.{GraphNet, TFNet}
+import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
@@ -144,6 +146,8 @@ class PythonZooKeras[T: ClassTag](implicit ev: TensorNumeric[T]) extends PythonZ
     val resRDD = module match {
       case net: KerasNet[T] =>
         net.predict(x.rdd.map(toJSample), batchPerThread)
+      case net: TFNet =>
+        net.predictForTFNet(x.rdd.map(toJSample).asInstanceOf[RDD[BSample[Float]]], batchPerThread)
       case _ =>
         module.predict(x.rdd.map(toJSample), batchPerThread * x.getNumPartitions)
     }

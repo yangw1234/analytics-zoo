@@ -16,6 +16,7 @@
 package com.intel.analytics.zoo.pipeline.api.net
 
 
+import com.intel.analytics.bigdl.nn.Linear
 import com.intel.analytics.bigdl.nn.abstractnn.AbstractModule
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.utils.{LayerException, T}
@@ -23,7 +24,7 @@ import com.intel.analytics.zoo.pipeline.api.Net
 import com.intel.analytics.zoo.pipeline.api.keras.ZooSpecHelper
 import com.intel.analytics.zoo.pipeline.api.keras.serializer.ModuleSerializationTest
 import org.apache.spark.serializer.KryoSerializer
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkContext}
 import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 import scala.util.Random
@@ -128,14 +129,21 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
     }
   }
 
-  "TFNet " should "work with backward" in {
-    val resource = getClass().getClassLoader().getResource("tfnet_training")
-    val net = TFNet(resource.getPath)
-    val input = Tensor[Float](2, 4).rand()
-    val output = net.forward(input).toTensor[Float].clone()
-    val gradInput = net.backward(input, output).toTensor[Float].clone()
+    "Linear" should "work" in {
+      import com.intel.analytics.zoo.common.NNContext
+      import com.intel.analytics.bigdl.tensor.Tensor
+      import com.intel.analytics.bigdl.dataset.Sample
+      import com.intel.analytics.bigdl.nn.Linear
 
-    gradInput.size() should be (input.size())
-  }
+      val sc = NNContext.initNNContext()
+      val data = for (i <- 1 to 100) yield {
+        Tensor[Float](10).rand()
+      }
+      val rdd = sc.parallelize(data, 4)
+      val dataset = rdd.map(t => Sample[Float](t))
+      val net = Linear[Float](10, 1)
+      val result = net.predict(dataset, batchSize = 4 * 4)
+      result.map(x => 1).reduce((x, y) => 1)
+    }
 
 }

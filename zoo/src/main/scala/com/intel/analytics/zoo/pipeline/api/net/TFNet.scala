@@ -18,10 +18,17 @@ package com.intel.analytics.zoo.pipeline.api.net
 import java.io.{File, FileInputStream, InputStream}
 import java.nio._
 
+import com.intel.analytics.bigdl.{ModelBroadcastZoo, Module}
+import com.intel.analytics.bigdl.dataset.{PaddingParam, Sample, SampleToMiniBatch}
+import com.intel.analytics.bigdl.models.utils.ModelBroadcast
 import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
+import com.intel.analytics.bigdl.optim.Predictor
+import com.intel.analytics.bigdl.optim.Predictor.{splitBatch, splitTensor}
 import com.intel.analytics.bigdl.tensor.Tensor
-import com.intel.analytics.bigdl.utils.{MultiShape, Shape, T}
+import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
+import com.intel.analytics.bigdl.utils._
 import com.intel.analytics.zoo.pipeline.api.net.TFNet.TFGraphHolder
+import org.apache.spark.rdd.RDD
 import org.tensorflow.framework.GraphDef
 import org.tensorflow.types.UInt8
 import org.tensorflow.{DataType, Graph, Session, Tensor => TTensor}
@@ -31,6 +38,7 @@ import org.json4s._
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
+import scala.reflect.ClassTag
 
 /**
  * [[TFNet]] wraps a tensorflow subgraph as a layer, and use tensorflow to
@@ -199,7 +207,11 @@ class TFNet(graphDef: TFGraphHolder,
   private lazy val gradWeightTFTensors = new Array[TTensor[_]](gradWeights.length)
 
   override def updateOutput(input: Activity): Activity = {
+
     try {
+      val startTime = System.nanoTime()
+
+
       val runner = sess.runner()
 
       require(activityLength(input) == inputTypes.length,
@@ -272,12 +284,22 @@ class TFNet(graphDef: TFGraphHolder,
       emptyTFTensorArray(outputs.asScala.slice(0, outputNames.length))
       // tempTensors will be cleaned up after backward
 
+      val endTime = System.nanoTime()
+
+      println(s"time for processing one record ${(endTime - startTime)/1e9}s")
+
       output
     } catch {
       case ex: Throwable =>
         tensorManager.destructTFTensors()
         throw ex
     }
+  }
+
+  override def release(): Unit = {
+    super.release()
+    this.graph.close()
+    this.sess.close()
   }
 
   private def emptyTFTensorArray(arr: Array[TTensor[_]]): Unit = {
@@ -544,9 +566,89 @@ class TFNet(graphDef: TFGraphHolder,
     val parts = name.split(":")
     parts(0) + "_grad:" + parts(1)
   }
+
+  def predictForTFNet(x: RDD[Sample[Float]],
+               batchPerThread: Int)(implicit ev: TensorNumeric[Float]) = {
+    TFNet.predict(x, batchSize = batchPerThread * x.getNumPartitions, false, this,
+      batchPerThread, None)
+  }
 }
 
+
+
+
 object TFNet {
+
+
+  private def predict(dataSet: RDD[Sample[Float]], batchSize: Int = -1,
+                      shareBuffer: Boolean = false, model: Module[Float], batchPerPartition: Int,
+                      featurePaddingParam: Option[PaddingParam[Float]], singleThread: Boolean = false)(implicit ev: TensorNumeric[Float]): RDD[Activity] = {
+    val modelBroad = new ModelBroadcastZoo[Float]().broadcast(dataSet.sparkContext, model.evaluate())
+    val partitionNum = dataSet.partitions.length
+    val totalBatch = if (batchSize > 0) {
+      require(batchSize % partitionNum == 0, s"Predictor.predict: total batch size $batchSize " +
+        s"should be divided by partitionNum ${partitionNum}")
+      batchSize
+    } else {
+      batchPerPartition * partitionNum
+    }
+    val otherBroad = dataSet.sparkContext.broadcast(SampleToMiniBatch(
+      batchSize = totalBatch,
+      partitionNum = Some(partitionNum),
+      featurePaddingParam = featurePaddingParam))
+    dataSet.mapPartitions { partition =>
+      val localModel = modelBroad.value()
+      val localTransformer = otherBroad.value.cloneTransformer()
+      val miniBatch = localTransformer(partition)
+      miniBatch.flatMap(batch => {
+        val output = localModel.forward(batch.getInput)
+        splitBatch(output, shareBuffer, batch.size())
+
+      })
+    }
+  }
+
+
+  def splitBatch[T: ClassTag](output: Activity, shareBuffer: Boolean, batchSize: Int)
+                             (implicit ev: TensorNumeric[T]): Array[Activity] = {
+    val out = if (output.isTensor) {
+      splitTensor(output.toTensor, shareBuffer, batchSize)
+    } else {
+      val result = output.toTable
+      val tables = new Array[Table](batchSize)
+
+
+      (1 to result.length()).foreach(key => {
+        val split = splitBatch(result(key), shareBuffer, batchSize)
+        val size = split.length
+        require(batchSize == size,
+          s"The batchSize is required to be $size, while actual is $batchSize")
+        var i = 0
+        while (i < batchSize) {
+          if (tables(i) == null) tables(i) = T()
+          tables(i).insert(split(i))
+          i += 1
+        }
+      })
+      tables
+    }
+    out.asInstanceOf[Array[Activity]]
+  }
+
+  def splitTensor[T: ClassTag](output: Tensor[T],
+                               shareBuffer: Boolean, batchSize: Int)
+                              (implicit ev: TensorNumeric[T]): Array[Activity] = {
+    val result = if (shareBuffer) output else output.clone
+    val out = if (batchSize == 1) {
+      Array(result.squeeze)
+    } else {
+      val size = result.size(1)
+      require(batchSize == size,
+        s"The batchSize is required to be $size, while actual is $batchSize")
+      result.split(1)
+    }
+    out.asInstanceOf[Array[Activity]]
+  }
 
   @transient
   private lazy val inDriver = NetUtils.isDriver
