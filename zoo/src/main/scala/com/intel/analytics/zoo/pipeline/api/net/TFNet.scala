@@ -269,7 +269,7 @@ class TFNet(private val graphDef: TFGraphHolder,
       val sessStartTime = System.nanoTime()
       val outputs = runner.run()
       val sessEndTime = System.nanoTime()
-      logger.info(s"tensorflow session run ${(sessEndTime - sessStartTime) / 1.0e6}ms")
+      TFNet.logger.info(s"tensorflow session run ${(sessEndTime - sessStartTime) / 1.0e6}ms")
 
 
       outputs.asScala.zipWithIndex.foreach { case (t, idx) =>
@@ -294,7 +294,7 @@ class TFNet(private val graphDef: TFGraphHolder,
       // tempTensors will be cleaned up after backward
       val forwardEndTime = System.nanoTime()
 
-      logger.info(s"tfnet forward time ${(forwardEndTime - forwardStartTime) / 1.0e6}ms")
+      TFNet.logger.info(s"tfnet forward time ${(forwardEndTime - forwardStartTime) / 1.0e6}ms")
 
       output
     } catch {
