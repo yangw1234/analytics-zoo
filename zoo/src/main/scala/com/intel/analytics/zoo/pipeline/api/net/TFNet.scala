@@ -637,13 +637,16 @@ object TFNet {
       .foreach(System.load)
   }
 
-  try {
-    init()
-    logger.info("MKL TensorFlow loaded")
-  } catch {
-    case NonFatal(e) =>
-      logger.warn("loading mkl TensorFlow failed, fallback to normal TensorFlow", e)
+  if (System.getProperty("analytics-zoo.tensorflow.useMKL") == "true") {
+    try {
+      init()
+      logger.info("MKL TensorFlow loaded")
+    } catch {
+      case NonFatal(e) =>
+        logger.warn("loading mkl TensorFlow failed, fallback to normal TensorFlow", e)
+    }
   }
+
 
   @transient
   private lazy val inDriver = NetUtils.isDriver
