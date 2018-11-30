@@ -57,8 +57,12 @@ def main(max_epoch, data_num):
     # construct the model from TFDataset
     images, labels = dataset.tensors
 
-    with slim.arg_scope(lenet.lenet_arg_scope()):
-        logits, end_points = lenet.lenet(images, num_classes=10, is_training=True)
+    model = tf.keras.models.Sequential()
+    model.add(tf.keras.layers.InputLayer(input_tensor=images))
+    model.add(tf.keras.layers.Flatten())
+    model.add(tf.keras.layers.Dense(10))
+
+    logits = model.outputs[0]
 
     loss = tf.reduce_mean(tf.losses.sparse_softmax_cross_entropy(logits=logits, labels=labels))
 
