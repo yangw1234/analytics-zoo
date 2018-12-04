@@ -31,7 +31,7 @@ import com.intel.analytics.bigdl.utils.{MultiShape, Shape, T}
 import com.intel.analytics.zoo.pipeline.api.{Predictable, Predictor}
 import com.intel.analytics.zoo.pipeline.api.net.TFNet.TFGraphHolder
 import org.apache.spark.rdd.RDD
-import org.tensorflow.framework.GraphDef
+import org.tensorflow.framework.{ConfigProto, GraphDef, GraphOptions, RewriterConfig}
 import org.tensorflow.types.UInt8
 import org.tensorflow.{DataType, Graph, Session, Tensor => TTensor}
 
@@ -723,35 +723,22 @@ object TFNet {
 
   case class SessionConfig(intraOpParallelismThreads: Int = 1,
                            interOpParallelismThreads: Int = 1,
-                           usePerSessionThreads: Boolean = true) {
+                           usePerSessionThreads: Boolean = true,
+                           graphRewriteRemapping: Boolean = false) {
 
     // Ideally we should use the following code, however, importing tensorflow proto
     // will conflict with bigdl.
 
-    //  val defaultSessionConfig = ConfigProto.newBuilder()
-    //    .setInterOpParallelismThreads(1)
-    //    .setIntraOpParallelismThreads(1)
-    //    .setUsePerSessionThreads(true)
-    //    .build().toByteArray
+      val defaultSessionConfig = ConfigProto.newBuilder()
+        .setInterOpParallelismThreads(interOpParallelismThreads)
+        .setIntraOpParallelismThreads(intraOpParallelismThreads)
+        .setUsePerSessionThreads(usePerSessionThreads)
+        .setGraphOptions(GraphOptions.newBuilder()
+          .setRewriteOptions(RewriterConfig.newBuilder().setRemapping(RewriterConfig.Toggle.OFF)))
+        .build().toByteArray
 
     def toByteArray(): Array[Byte] = {
-      val intraSeq = if (intraOpParallelismThreads > 0) {
-        Seq(16, intraOpParallelismThreads)
-      } else {
-        Seq[Int]()
-      }
-      val interSeq = if (interOpParallelismThreads > 0) {
-        Seq(40, interOpParallelismThreads)
-      } else {
-        Seq[Int]()
-      }
-      val perSessSeq = if (usePerSessionThreads) {
-        Seq(72, 1)
-      } else {
-        Seq[Int]()
-      }
-
-      (intraSeq ++ interSeq ++ perSessSeq).map(_.toByte).toArray
+      defaultSessionConfig
     }
   }
 
