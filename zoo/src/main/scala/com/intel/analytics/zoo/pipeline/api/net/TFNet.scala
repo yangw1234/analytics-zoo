@@ -16,22 +16,18 @@
 package com.intel.analytics.zoo.pipeline.api.net
 
 import java.io.{File, FileInputStream, FileOutputStream, InputStream}
-import java.net.URL
 import java.nio._
-import java.nio.channels.{Channels, FileChannel, ReadableByteChannel}
-import java.nio.file.{Files, Path, Paths}
+import java.nio.channels.{Channels, ReadableByteChannel}
+import java.nio.file.{Files, Path}
 
 import com.intel.analytics.bigdl.Module
-import com.intel.analytics.bigdl.dataset.{PaddingParam, Sample}
-import com.intel.analytics.bigdl.mkl.Loader
 import com.intel.analytics.bigdl.nn.abstractnn.{AbstractModule, Activity}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.utils.{MultiShape, Shape, T}
-import com.intel.analytics.zoo.pipeline.api.{Predictable, Predictor}
+import com.intel.analytics.zoo.pipeline.api.Predictable
 import com.intel.analytics.zoo.pipeline.api.net.TFNet.TFGraphHolder
-import org.apache.spark.rdd.RDD
-import org.tensorflow.framework.{ConfigProto, GraphDef, GraphOptions, RewriterConfig}
+import org.tensorflow.framework.GraphDef
 import org.tensorflow.types.UInt8
 import org.tensorflow.{DataType, Graph, Session, Tensor => TTensor}
 
@@ -269,7 +265,7 @@ class TFNet(private val graphDef: TFGraphHolder,
       val sessStartTime = System.nanoTime()
       val outputs = runner.run()
       val sessEndTime = System.nanoTime()
-      TFNet.logger.info(s"tensorflow session run ${(sessEndTime - sessStartTime) / 1.0e6}ms")
+      TFNet.logger.debug(s"tensorflow session run ${(sessEndTime - sessStartTime) / 1.0e6}ms")
 
 
       outputs.asScala.zipWithIndex.foreach { case (t, idx) =>
@@ -294,7 +290,7 @@ class TFNet(private val graphDef: TFGraphHolder,
       // tempTensors will be cleaned up after backward
       val forwardEndTime = System.nanoTime()
 
-      TFNet.logger.info(s"tfnet forward time ${(forwardEndTime - forwardStartTime) / 1.0e6}ms")
+      TFNet.logger.debug(s"tfnet forward time ${(forwardEndTime - forwardStartTime) / 1.0e6}ms")
 
       output
     } catch {
@@ -729,16 +725,30 @@ object TFNet {
     // Ideally we should use the following code, however, importing tensorflow proto
     // will conflict with bigdl.
 
-      val defaultSessionConfig = ConfigProto.newBuilder()
-        .setInterOpParallelismThreads(interOpParallelismThreads)
-        .setIntraOpParallelismThreads(intraOpParallelismThreads)
-        .setUsePerSessionThreads(usePerSessionThreads)
-        .setGraphOptions(GraphOptions.newBuilder()
-          .setRewriteOptions(RewriterConfig.newBuilder().setRemapping(RewriterConfig.Toggle.OFF)))
-        .build().toByteArray
-
     def toByteArray(): Array[Byte] = {
-      defaultSessionConfig
+      val intraSeq = if (intraOpParallelismThreads > 0) {
+        Seq(16, intraOpParallelismThreads)
+      } else {
+        Seq[Int]()
+      }
+      val interSeq = if (interOpParallelismThreads > 0) {
+        Seq(40, interOpParallelismThreads)
+      } else {
+        Seq[Int]()
+      }
+      val perSessSeq = if (usePerSessionThreads) {
+        Seq(72, 1)
+      } else {
+        Seq[Int]()
+      }
+
+      val reWriteSess = if (graphRewriteRemapping) {
+        Seq[Int]()
+      } else {
+        Seq[Int](82, 4, 82, 2, 112, 2)
+      }
+
+      (intraSeq ++ interSeq ++ perSessSeq ++ reWriteSess).map(_.toByte).toArray
     }
   }
 

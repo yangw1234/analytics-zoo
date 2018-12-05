@@ -24,6 +24,7 @@ import com.intel.analytics.zoo.common.NNContext
 import com.intel.analytics.zoo.pipeline.api.Net
 import com.intel.analytics.zoo.pipeline.api.keras.ZooSpecHelper
 import com.intel.analytics.zoo.pipeline.api.keras.serializer.ModuleSerializationTest
+import com.intel.analytics.zoo.pipeline.api.net.TFNet.SessionConfig
 import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.SparkConf
 import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
@@ -149,7 +150,7 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
 
   }
 
-  "TFNet" should "predict with image classification" in {
+  "TFNet" should "predict with image classification analytics-zoo" in {
     val conf = new SparkConf().setAppName("Fine tuning Example").setMaster("local[4]")
 
     import com.intel.analytics.zoo.common.NNContext
@@ -162,10 +163,89 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
     import com.intel.analytics.zoo.pipeline.api.keras.models.Sequential
     val sc = NNContext.initNNContext()
 
-    val models = Array("tfnet_DenseNet121","tfnet_InceptionResNetV2","tfnet_InceptionV3","tfnet_MobileNet","tfnet_MobileNetV2","tfnet_NASNetLarge","tfnet_NASNetMobile","tfnet_ResNet50","tfnet_VGG16","tfnet_VGG19","tfnet_Xception")
+    val models = Array("inception-v1", "inception-v3", "mobilenet-v2", "mobilenet", "densenet-161", "resnet-50", "vgg-16", "vgg-19")
 
     val results = for (model <- models) yield {
-      val rdd = sc.parallelize(0 until 28, 28)
+      val rdd = sc.parallelize(0 until 112, 112)
+      val dataset = rdd.flatMap { _ =>
+        for (i <- 1 to 100) yield {
+          Tensor[Float](224, 224, 3).rand()
+        }
+      }.map(t => Sample[Float](t))
+      val net = Net.loadBigDL[Float](s"/opt/work/analytics-zoo-models/analytics-zoo_${model}_imagenet_0.10.model")
+
+      val start = System.nanoTime()
+      val result = net.predict(dataset, batchPerThread = 4)
+      result.map(x => 1).reduce((x, y) => 1)
+      val end = System.nanoTime()
+      val throughput = 100.0 * 28 * 1e9/ (end - start)
+      println(s"$model throughput is $throughput records/s")
+      throughput
+    }
+
+    models.zip(results).foreach { case (model, result) =>
+      println(s"$model throughput is $result records/s")
+    }
+
+  }
+
+  "TFNet" should "predict with image classification slim" in {
+    val conf = new SparkConf().setAppName("Fine tuning Example").setMaster("local[4]")
+
+    import com.intel.analytics.zoo.common.NNContext
+    import com.intel.analytics.bigdl.tensor.Tensor
+    import com.intel.analytics.bigdl.dataset.Sample
+    import com.intel.analytics.zoo.pipeline.api.net.TFNet
+    import com.intel.analytics.zoo.pipeline.api.net.TFNet.SessionConfig
+    import com.intel.analytics.zoo.pipeline.api.keras.layers.{Dense, Flatten}
+    import com.intel.analytics.bigdl.utils.{LayerException, Shape, T}
+    import com.intel.analytics.zoo.pipeline.api.keras.models.Sequential
+    val sc = NNContext.initNNContext()
+
+    val models = Array("tfnet_inception_v1", "tfnet_resnet_v2_101", "tfnet_vgg_16", "tfnet_vgg_19")
+
+    val results = for (model <- models) yield {
+      val rdd = sc.parallelize(0 until 112, 112)
+      val dataset = rdd.flatMap { _ =>
+        for (i <- 1 to 100) yield {
+          Tensor[Float](224, 224, 3).rand()
+        }
+      }.map(t => Sample[Float](t))
+      val net = TFNet(s"/opt/work/slim-models-tfnet/$model",
+        SessionConfig(graphRewriteRemapping = true))
+
+      val start = System.nanoTime()
+      val result = net.predict(dataset, batchPerThread = 4)
+      result.map(x => 1).reduce((x, y) => 1)
+      val end = System.nanoTime()
+      val throughput = 100.0 * 28 * 1e9/ (end - start)
+      println(s"$model throughput is $throughput records/s")
+      throughput
+    }
+
+    models.zip(results).foreach { case (model, result) =>
+      println(s"$model throughput is $result records/s")
+    }
+
+  }
+
+  "TFNet" should "predict with image classification keras" in {
+    val conf = new SparkConf().setAppName("Fine tuning Example").setMaster("local[4]")
+
+    import com.intel.analytics.zoo.common.NNContext
+    import com.intel.analytics.bigdl.tensor.Tensor
+    import com.intel.analytics.bigdl.dataset.Sample
+    import com.intel.analytics.zoo.pipeline.api.net.TFNet
+    import com.intel.analytics.zoo.pipeline.api.net.TFNet.SessionConfig
+    import com.intel.analytics.zoo.pipeline.api.keras.layers.{Dense, Flatten}
+    import com.intel.analytics.bigdl.utils.{LayerException, Shape, T}
+    import com.intel.analytics.zoo.pipeline.api.keras.models.Sequential
+    val sc = NNContext.initNNContext()
+
+    val models = Array("tfnet_DenseNet169","tfnet_InceptionResNetV2","tfnet_InceptionV3","tfnet_MobileNet","tfnet_MobileNetV2","tfnet_NASNetLarge","tfnet_NASNetMobile","tfnet_ResNet50","tfnet_VGG16","tfnet_VGG19","tfnet_Xception")
+
+    val results = for (model <- models) yield {
+      val rdd = sc.parallelize(0 until 112, 112)
       val dataset = rdd.flatMap { _ =>
         for (i <- 1 to 100) yield {
           Tensor[Float](224, 224, 3).rand()
@@ -174,11 +254,8 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
       val net = TFNet(s"/opt/work/keras-models-tfnet/$model",
         SessionConfig(graphRewriteRemapping = true))
 
-//      val net = Sequential[Float]()
-//      net.add(Flatten[Float](inputShape = Shape(Array(224, 224, 3))))
-//      net.add(Dense[Float](5))
       val start = System.nanoTime()
-      val result = net.predict(dataset, batchSize = 28 * 4 * 4)
+      val result = net.predict(dataset, batchPerThread = 4)
       result.map(x => 1).reduce((x, y) => 1)
       val end = System.nanoTime()
       val throughput = 100.0 * 28 * 1e9/ (end - start)
@@ -208,7 +285,7 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
       "faster_rcnn_inception_v2_coco_2018_01_28")
 
     val results = for (model <- models) yield {
-      val rdd = sc.parallelize(0 until 28, 28)
+      val rdd = sc.parallelize(0 until 112, 112)
       val dataset = rdd.flatMap { _ =>
         for (i <- 1 to 100) yield {
           Tensor[Float](600, 600, 3).rand()
@@ -217,9 +294,9 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
       val net = TFNet(s"/opt/work/tensorflow-object-detection/$model/frozen_inference_graph.pb",
       inputNames = Array("image_tensor:0"),
         outputNames = Array("num_detections:0", "detection_boxes:0",
-          "detection_scores:0", "detection_classes:0"))
+          "detection_scores:0", "detection_classes:0"), SessionConfig(graphRewriteRemapping = true))
       val start = System.nanoTime()
-      val result = net.predict(dataset, batchSize = 28 * 4)
+      val result = net.predict(dataset, batchPerThread = 4)
       result.map(x => 1).reduce((x, y) => 1)
       val end = System.nanoTime()
       val throughput = 100.0 * 28 * 1e9/ (end - start)
