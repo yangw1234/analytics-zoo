@@ -16,20 +16,21 @@
 
 package com.intel.analytics.zoo.pipeline.api.net
 
-import java.nio.FloatBuffer
+import java.nio._
+import java.util
 
 import com.intel.analytics.bigdl.dataset.{MiniBatch, Sample, Transformer}
 import com.intel.analytics.bigdl.nn.abstractnn.{AbstractCriterion, AbstractModule, Activity}
 import com.intel.analytics.bigdl.optim._
-import com.intel.analytics.bigdl.python.api.{PythonBigDLKeras, Sample => JSample}
-import com.intel.analytics.bigdl.tensor.{Storage, Tensor}
-import com.intel.analytics.bigdl.utils.T
+import com.intel.analytics.bigdl.python.api.{JTensor, PythonBigDLKeras, PythonBigDLUtils, Sample => JSample}
+import com.intel.analytics.bigdl.tensor.{DoubleType, FloatType, Storage, Tensor}
+import com.intel.analytics.bigdl.utils.{File, T}
 import com.intel.analytics.zoo.pipeline.api.keras.metrics.Accuracy
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.rdd.RDD
-import org.tensorflow.{Session, Tensor => TTensor}
+import org.tensorflow.{DataType, Session, Tensor => TTensor}
 
-import scala.collection.Iterator
+import scala.collection.{Iterator, mutable}
 import scala.collection.JavaConverters._
 import scala.io.Source
 import scala.reflect.io.Path
@@ -38,35 +39,30 @@ private[zoo] class TFTrainingHelper(tfnet: TFNet,
                                     inputs: Array[String],
                                     outputs: Array[String],
                                     variables: Array[String],
-                                    gradVariables: Array[String])
+                                    gradVariables: Array[String],
+                                    val assignOp: String,
+                                    variablePath: Path)
   extends AbstractModule[Activity, Activity, Float] {
 
   override def parameters(): (Array[Tensor[Float]], Array[Tensor[Float]]) = {
     (weights, gradWeights)
   }
   private val weights = {
-    val ws = new Array[Tensor[Float]](variables.length)
-    var i = 0
-    while (i < ws.length) {
-      ws(i) = Tensor[Float]()
-      i += 1
-    }
-    setWeights(ws)
+    val m = File.load(variablePath.toString()).asInstanceOf[util.HashMap[String, JTensor]].asScala
+    variables.map(x => PythonBigDLKeras.ofFloat().toTensor(m(x)))
   }
 
   private val gradWeights = variables.map(_ => Tensor[Float]())
 
 
-  private def setWeights(weights: Array[Tensor[Float]]) = {
+  private def assignWeights(weights: Array[Tensor[Float]]) = {
     val sess = tfnet.sess
     val runner = sess.runner()
-    variables.foreach(runner.fetch)
-    runner.run().asScala.zipWithIndex.map { case (fetch, idx) =>
-      val t = weights(idx)
-      tf2bigdl(fetch.asInstanceOf[TTensor[Float]], t)
-      t
-    }
-    weights
+    runner.addTarget(assignOp)
+    val tfWeights = weights.map(bigdl2Tf)
+    variables.zip(tfWeights).foreach(x => runner.feed(x._1.split(":")(0) + "_assign", x._2))
+    runner.run()
+    tfWeights.foreach(_.close())
   }
 
   private def tf2bigdl(t: TTensor[_], output: Tensor[Float]) = {
@@ -79,7 +75,20 @@ private[zoo] class TFTrainingHelper(tfnet: TFNet,
     t.writeTo(buffer)
   }
 
+  private def bigdl2Tf(t: Tensor[Float]): TTensor[java.lang.Float] = {
+
+    require(t.isContiguous(), "input to tfnet must be contiguous")
+    val shape = t.size().map(_.toLong)
+    val arr = t.storage().array()
+    val offset: Int = t.storageOffset() - 1
+    val length: Int = shape.product.toInt
+
+    val buffer = FloatBuffer.wrap(arr, offset, length)
+    TTensor.create(shape, buffer)
+  }
+
   override def updateOutput(input: Activity): Activity = {
+    assignWeights(weights)
     val feeds = T()
     if (input.isTensor) {
       feeds.insert(input)
@@ -90,12 +99,6 @@ private[zoo] class TFTrainingHelper(tfnet: TFNet,
         i += 1
       }
 
-    }
-
-    var i = 0
-    while (i < weights.length) {
-      feeds.insert(weights(i))
-      i += 1
     }
 
     val fetches = tfnet.forward(feeds).toTable.toSeq[Tensor[Float]].toArray
@@ -132,6 +135,7 @@ object TFTrainingHelper {
 
     val folderPath = Path(modelPath)
     val trainingMetaPath = folderPath / Path("training_meta.json")
+    val trainingVariablePath = folderPath / Path("model.bin")
 
     val jsonStr = Source.fromFile(trainingMetaPath.jfile).getLines().mkString
     import org.json4s._
@@ -141,7 +145,7 @@ object TFTrainingHelper {
     val trainingMeta = parse(jsonStr).camelizeKeys.extract[TrainMeta]
 
     val newMeta = Meta(
-      (meta.inputNames.toSeq ++: trainingMeta.variables.toSeq).toArray,
+      meta.inputNames,
       meta.outputNames)
     val graphDef = TFNet.parseGraph(model)
     val tfnet = TFNet(graphDef, model, newMeta, TFNet.defaultSessionConfig.toByteArray())
@@ -151,7 +155,9 @@ object TFTrainingHelper {
       trainingMeta.inputNames,
       trainingMeta.outputNames,
       trainingMeta.variables,
-      trainingMeta.gradVariables)
+      trainingMeta.gradVariables,
+      trainingMeta.assignOp,
+      trainingVariablePath)
   }
 }
 
@@ -238,7 +244,7 @@ class MergeFeatureLabel() extends Transformer[Sample[Float], Sample[Float]] {
 }
 
 case class TrainMeta(inputNames: Array[String], outputNames: Array[String],
-                     variables: Array[String], gradVariables: Array[String])
+                     variables: Array[String], gradVariables: Array[String], assignOp: String)
 
 
 class TFOptimizer(modelPath: String,

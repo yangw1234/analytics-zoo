@@ -13,12 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+import logging
 
+from bigdl.util.tf_utils import save_variable_bigdl
 from tensorflow.core.framework import attr_value_pb2
 from tensorflow.core.framework import graph_pb2
 from tensorflow.core.framework import node_def_pb2
-from tensorflow.python.framework import graph_util
+from tensorflow.python.framework import graph_util, tensor_util
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.graph_util_impl import extract_sub_graph
 from tensorflow.python.platform import gfile
 import tensorflow as tf
 import os
@@ -36,6 +39,30 @@ def process_grad(grad):
             grad = tf.unsorted_segment_sum(grad.values, grad.indices,
                                            grad.dense_shape[0])
     return grad
+
+def export_tf2(sess, folder, inputs, outputs, variables):
+    output_names = [o.name for o in outputs]
+    input_names = [i.name for i in inputs]
+    variable_names = [v.name for v in variables]
+
+    with gfile.GFile(os.path.join(folder, "frozen_inference_graph.pb"), "wb") as f:
+        f.write(sess.graph_def.SerializeToString())
+
+    meta = {
+        "input_names": input_names,
+        "output_names": output_names
+    }
+
+    returned_variables = sess.run(variables)
+    variable_dict = dict(zip(variable_names, returned_variables))
+
+    save_variable_bigdl(variable_dict, folder + "/model.bin")
+
+    with open(os.path.join(folder, "graph_meta.json"), "w") as f:
+        f.write(json.dumps(meta))
+
+
+
 
 
 def export_tf(sess, folder, inputs, outputs,
@@ -185,7 +212,6 @@ def export_tf(sess, folder, inputs, outputs,
 
     with open(os.path.join(folder, "graph_meta.json"), "w") as f:
         f.write(json.dumps(meta))
-
 
 def _find_temp_tensors(grads, forward_ops):
     '''

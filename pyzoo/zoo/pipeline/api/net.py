@@ -33,6 +33,7 @@ from zoo.common import Sample, JTensor
 from zoo.feature.image import ImageSet
 from zoo.pipeline.api.keras.engine.topology import ZooKerasLayer, KerasNet, to_bigdl_metric
 from bigdl.optim.optimizer import EveryEpoch, MaxEpoch, Optimizer
+from zoo.util.tf import export_tf2
 
 if sys.version >= '3':
     long = int
@@ -396,10 +397,21 @@ class TFOptimizer:
         else:
             outputs = [loss]
 
-        self.export_dir = tempfile.mkdtemp()
-        export_tf(self.sess, self.export_dir,
+        self.variable_placeholders = []
+        with self.graph.as_default():
+            assigns = []
+            for v in variables:
+                p = tf.placeholder(dtype=tf.float32, shape=v.shape, name=v.name.split(":")[0] + "_assign")
+                a = tf.assign(v, p)
+                self.variable_placeholders.append(p)
+                assigns.append(a)
+            assign = tf.group(*assigns)
+        self.assign = assign
+
+        self.export_dir = "/tmp/tfnet_test" # tempfile.mkdtemp()
+        export_tf2(self.sess, self.export_dir,
                   inputs=self.inputs,
-                  outputs=grads + outputs)
+                  outputs=grads + outputs, variables=variables)
 
         variable_names = [v.name for v in variables]
         grad_names = [g.name for g in grads]
@@ -409,22 +421,12 @@ class TFOptimizer:
             "input_names": [i.name for i in self.inputs],
             "output_names": output_names,
             "variables": variable_names,
-            "grad_variables": grad_names
+            "grad_variables": grad_names,
+            "assign_op": self.assign.name
         }
 
         with open(os.path.join(self.export_dir, "training_meta.json"), "w") as f:
             f.write(json.dumps(meta))
-
-        self.variable_placeholders = []
-        with self.graph.as_default():
-            assigns = []
-            for v in variables:
-                p = tf.placeholder(dtype=tf.float32, shape=v.shape)
-                a = tf.assign(v, p)
-                self.variable_placeholders.append(p)
-                assigns.append(a)
-            assign = tf.group(*assigns)
-        self.assign = assign
 
         self.training_helper_layer = TFTrainingHelper(self.export_dir)
 
@@ -513,6 +515,8 @@ class TFOptimizer:
         variables = keras_model._collected_trainable_weights
         keras_optimizer = keras_model.optimizer
         grads = keras_optimizer.get_gradients(loss, variables)
+        from zoo.util.tf import process_grad
+        grads = [process_grad(grad) for grad in grads]
         sess = K.get_session()
         with sess.as_default():
             optim_method = TFOptimizer.to_bigdl_optim_method(keras_optimizer)
