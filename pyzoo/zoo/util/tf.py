@@ -15,6 +15,8 @@
 #
 import logging
 
+from tensorflow.python.ops import gen_state_ops, gen_resource_variable_ops
+
 from bigdl.util.tf_utils import save_variable_bigdl
 from tensorflow.core.framework import attr_value_pb2
 from tensorflow.core.framework import graph_pb2
@@ -29,7 +31,8 @@ import json
 import copy
 
 
-def process_grad(grad):
+def process_grad(grad, tensor, allow_non_differentiable):
+
     if grad is not None:
         grad = ops.convert_to_tensor_or_indexed_slices(grad)
         if isinstance(grad, ops.IndexedSlices):
@@ -38,35 +41,103 @@ def process_grad(grad):
             # no work around
             grad = tf.unsorted_segment_sum(grad.values, grad.indices,
                                            grad.dense_shape[0])
+    else:
+        if allow_non_differentiable:
+            grad = tf.zeros(shape=tf.shape(tensor))
+        else:
+            raise ValueError("tensor: %s is not differentiable" % tensor.name)
     return grad
 
-def export_tf2(sess, folder, inputs, outputs, variables):
+
+def export_tf_without_freezing(sess, folder, inputs, outputs, variables, backward_info = None):
     output_names = [o.name for o in outputs]
     input_names = [i.name for i in inputs]
     variable_names = [v.name for v in variables]
 
-    with gfile.GFile(os.path.join(folder, "frozen_inference_graph.pb"), "wb") as f:
-        f.write(sess.graph_def.SerializeToString())
+    returned_variables = []
 
-    meta = {
-        "input_names": input_names,
-        "output_names": output_names
-    }
+    for v in variables:
+        if v.dtype == tf.resource:
+            new_name = v.name[:-2] + "/Read/ReadVariableOp:0"
+            returned_variables.append(sess.run(new_name))
+        else:
+            returned_variables.append(sess.run(v.name))
 
-    returned_variables = sess.run(variables)
-    variable_dict = dict(zip(variable_names, returned_variables))
+    graph_def = tf.get_default_graph().as_graph_def()
 
-    save_variable_bigdl(variable_dict, folder + "/model.bin")
+    with tf.Graph().as_default() as g:
+        tf.import_graph_def(graph_def, name="")
 
-    with open(os.path.join(folder, "graph_meta.json"), "w") as f:
-        f.write(json.dumps(meta))
+        out_variables = [g.get_tensor_by_name(name) for name in variable_names]
+
+        assigns = []
+        for i in range(len(out_variables)):
+            v = out_variables[i]
+            p = tf.placeholder(dtype=tf.float32, shape=returned_variables[i].shape, name=v.name.split(":")[0] + "_assign")
+            if v.dtype == tf.resource:
+                a = gen_resource_variable_ops.assign_variable_op(
+                    v,
+                    p)
+            else:
+                a = tf.assign(v, p)
+            assigns.append(a)
+        assign = tf.group(*assigns)
+        with gfile.GFile(os.path.join(folder, "graph.pb"), "wb") as f:
+            f.write(g.as_graph_def().SerializeToString())
+
+        meta = {
+            "input_names": input_names,
+            "output_names": output_names,
+        }
+
+        if len(variables) > 0:
+            variable_dict = dict(zip(variable_names, returned_variables))
+            save_variable_bigdl(variable_dict, folder + "/model.bin")
+            meta["variables"] = variable_names
+            meta["variable_path"] = folder + "/model.bin"
+            meta["assign_op"] = assign.name
+
+        if backward_info is not None:
+            meta.update(backward_info)
+        else:
+            meta["has_backward"] = False
+
+        with open(os.path.join(folder, "graph_meta.json"), "w") as f:
+            f.write(json.dumps(meta))
 
 
+def generate_backward_graph(graph_def, input_names,
+                            output_names, variable_names,
+                            allow_non_differentiable):
+    nodes = set([n.name for n in graph_def.node])
+    with tf.Graph().as_default() as g:
+        tf.import_graph_def(graph_def, name='')
+        output_tensors = [g.get_tensor_by_name(x) for x in output_names]
+        grad_output_placeholders = [tf.placeholder(dtype=x.dtype,
+                                                   name=x.name.split(":")[0] + "_grad",
+                                                   shape=x.shape) for x in output_tensors]
 
+        variables = [g.get_tensor_by_name(x) for x in variable_names]
+
+        inputs = [g.get_tensor_by_name(x) for x in input_names]
+        variables_and_inputs = variables + inputs
+        grads = tf.gradients(output_tensors, variables_and_inputs,
+                             grad_ys=grad_output_placeholders)
+
+        grads = [process_grad(grad, tensor, allow_non_differentiable)
+                 for (grad, tensor) in zip(grads, variables_and_inputs)]
+
+        temp_tensor_names = _find_temp_tensors(grads, nodes)
+
+        grad_variable_names = [x.name for x in grads[0:len(variables)]]
+        grad_input_names = [x.name for x in grads[len(variables):]]
+
+        new_graph_def = g.as_graph_def()
+    return new_graph_def, grad_variable_names, grad_input_names, temp_tensor_names
 
 
 def export_tf(sess, folder, inputs, outputs,
-              generate_backward=False, allow_non_differentiable_input=True):
+              generate_backward=False, allow_non_differentiable=True):
     """
     Export the frozen tensorflow graph as well as the inputs/outputs information
     to the folder for inference.
@@ -170,26 +241,13 @@ def export_tf(sess, folder, inputs, outputs,
             grads = tf.gradients(output_tensors, variables + inputs,
                                  grad_ys=grad_output_placeholders)
 
-            grads = [process_grad(grad) for grad in grads]
+            grads = [process_grad(grad, tensor, allow_non_differentiable)
+                     for (grad, tensor) in zip(grads, variables + inputs)]
 
             temp_tensors = _find_temp_tensors(grads, nodes)
 
             grad_variables = [x.name for x in grads[0:len(variables)]]
-
-            grad_inputs = []
-            for i in range(len(variables), len(grads)):
-                grad = grads[i]
-                if grad is not None:
-                    grad_inputs.append(grad.name)
-                else:
-                    # if input is not differentiable, we just return zero
-                    input_tensor = inputs[i - len(variables)]
-                    if allow_non_differentiable_input:
-                        zero_grad = tf.zeros(shape=tf.shape(input_tensor))
-                        grad_inputs.append(zero_grad.name)
-                    else:
-                        raise ValueError(
-                            "input tensor: %s is not differentiable" % input_tensor.name)
+            grad_inputs = [x.name for x in grads[len(variables):]]
 
             optimized_graph_def = g.as_graph_def()
 

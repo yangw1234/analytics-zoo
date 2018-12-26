@@ -46,6 +46,8 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
       Tensor[Float](Array[Float](4.0f), Array(1, 1)),
       Tensor[Float](Array[Float](255.0f), Array(1, 1))
     )
+
+    net.training()
     val result = net.forward(data)
     val gradInput = net.backward(data, null)
 
@@ -132,6 +134,7 @@ class TFNetSpec extends FlatSpec with Matchers with BeforeAndAfter {
     val resource = getClass().getClassLoader().getResource("tfnet_training")
     val net = TFNet(resource.getPath)
     val input = Tensor[Float](2, 4).rand()
+    net.training()
     val output = net.forward(input).toTensor[Float].clone()
     val gradInput = net.backward(input, output).toTensor[Float].clone()
 

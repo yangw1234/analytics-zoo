@@ -33,7 +33,6 @@ from zoo.common import Sample, JTensor
 from zoo.feature.image import ImageSet
 from zoo.pipeline.api.keras.engine.topology import ZooKerasLayer, KerasNet, to_bigdl_metric
 from bigdl.optim.optimizer import EveryEpoch, MaxEpoch, Optimizer
-from zoo.util.tf import export_tf2
 
 if sys.version >= '3':
     long = int
@@ -288,13 +287,45 @@ class TFNet(Layer):
         return TFNet(folder)
 
     @staticmethod
-    def from_session(sess, inputs, outputs,
-                     generate_backward=False, allow_non_differentiable_input=True):
-        from zoo.util.tf import export_tf
+    def export_to_folder(folder, sess, inputs, outputs, variables=None,
+                     generate_backward=False, allow_non_differentiable=True):
+        from zoo.util.tf import generate_backward_graph, export_tf_without_freezing
+        import tensorflow as tf
+        output_names = [o.name for o in outputs]
+        input_names = [i.name for i in inputs]
+        if variables is None:
+            variables = tf.trainable_variables()
+        variable_names = [v.name for v in variables]
+        graph_def = sess.graph_def
+
+        backward_info = None
+        if generate_backward:
+            graph_def, grad_variable_names, grad_input_names, temp_tensor_names = \
+                generate_backward_graph(graph_def, input_names, output_names,
+                                        variable_names, allow_non_differentiable)
+
+            backward_info = {
+                "temp_tensors": list(temp_tensor_names),
+                "grad_variables": list(grad_variable_names),
+                "grad_inputs": list(grad_input_names),
+                "has_backward": True
+            }
+
+        with tf.Graph().as_default() as g:
+            tf.import_graph_def(graph_def, name="")
+            input_tensors = [g.get_tensor_by_name(name) for name in input_names]
+            output_tensors = [g.get_tensor_by_name(name) for name in output_names]
+            variables = [g.get_tensor_by_name(name) for name in variable_names]
+            export_tf_without_freezing(sess, folder, input_tensors, output_tensors, variables, backward_info)
+
+    @staticmethod
+    def from_session(sess, inputs, outputs, variables = None,
+                     generate_backward=False, allow_non_differentiable=True):
+
         temp = tempfile.mkdtemp()
         try:
-            export_tf(sess, temp, inputs, outputs,
-                      generate_backward, allow_non_differentiable_input)
+            TFNet.export_to_folder(temp, sess, inputs, outputs, variables,
+                                   generate_backward, allow_non_differentiable)
             net = TFNet.from_export_folder(temp)
         finally:
             import shutil
@@ -364,7 +395,7 @@ class TFOptimizer:
                  grads=None, variables=None, graph=None,
                  val_outputs=None, val_labels=None, val_method=None, val_split=0.0):
         import tensorflow as tf
-        from zoo.util.tf import export_tf
+        from zoo.util.tf import export_tf_without_freezing
         '''
         TFOptimizer is used for distributed training of tensorflow
         on Spark/BigDL.
@@ -397,6 +428,12 @@ class TFOptimizer:
         else:
             outputs = [loss]
 
+        self.export_dir = tempfile.mkdtemp()
+        export_tf_without_freezing(self.sess, self.export_dir,
+                                   inputs=self.inputs, outputs=grads + outputs,
+                                   variables=variables)
+        self.training_helper_layer = TFTrainingHelper(self.export_dir)
+
         self.variable_placeholders = []
         with self.graph.as_default():
             assigns = []
@@ -407,28 +444,6 @@ class TFOptimizer:
                 assigns.append(a)
             assign = tf.group(*assigns)
         self.assign = assign
-
-        self.export_dir = "/tmp/tfnet_test" # tempfile.mkdtemp()
-        export_tf2(self.sess, self.export_dir,
-                  inputs=self.inputs,
-                  outputs=grads + outputs, variables=variables)
-
-        variable_names = [v.name for v in variables]
-        grad_names = [g.name for g in grads]
-        output_names = [o.name for o in outputs]
-
-        meta = {
-            "input_names": [i.name for i in self.inputs],
-            "output_names": output_names,
-            "variables": variable_names,
-            "grad_variables": grad_names,
-            "assign_op": self.assign.name
-        }
-
-        with open(os.path.join(self.export_dir, "training_meta.json"), "w") as f:
-            f.write(json.dumps(meta))
-
-        self.training_helper_layer = TFTrainingHelper(self.export_dir)
 
         data = self.dataset.rdd
         batch_size = self.dataset.batch_size
@@ -483,7 +498,7 @@ class TFOptimizer:
         from zoo.util.tf import process_grad
         for (grad, var) in grads_vars:
             variables.append(var)
-            grad = process_grad(grad)
+            grad = process_grad(grad, None, False)
             grads.append(grad)
 
         all_required_inputs = _find_placeholders([loss])
@@ -516,7 +531,7 @@ class TFOptimizer:
         keras_optimizer = keras_model.optimizer
         grads = keras_optimizer.get_gradients(loss, variables)
         from zoo.util.tf import process_grad
-        grads = [process_grad(grad) for grad in grads]
+        grads = [process_grad(grad, None, False) for grad in grads]
         sess = K.get_session()
         with sess.as_default():
             optim_method = TFOptimizer.to_bigdl_optim_method(keras_optimizer)

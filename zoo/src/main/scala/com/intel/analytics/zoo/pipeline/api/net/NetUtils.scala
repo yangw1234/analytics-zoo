@@ -180,7 +180,7 @@ object NetUtils {
       throw new IllegalArgumentException(s"$folder does not exist")
     }
 
-    val modelPath = folderPath / Path("frozen_inference_graph.pb")
+    val modelPath = folderPath / Path("graph.pb")
     if (!modelPath.exists) {
       throw new IllegalArgumentException(
         s"${modelPath.path} does not exist")
@@ -211,11 +211,13 @@ object NetUtils {
 
 private[zoo] case class Meta(inputNames: Array[String],
                              outputNames: Array[String],
+                             variables: Array[String] = Array(),
+                             variablePath: String = "",
+                             assignOp: String = "",
+                             hasBackward: Boolean = false,
                              tempTensors: Option[Array[String]] = None,
-                             variables: Option[Array[String]] = None,
                              gradVariables: Option[Array[String]] = None,
-                             gradInputs: Option[Array[String]] = None
-                             )
+                             gradInputs: Option[Array[String]] = None)
 
 
 trait NetUtils[T, D <: Module[T] with NetUtils[T, D]] {
