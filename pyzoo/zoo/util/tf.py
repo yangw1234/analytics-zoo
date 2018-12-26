@@ -49,15 +49,18 @@ def process_grad(grad, tensor, allow_non_differentiable):
     return grad
 
 
-def export_tf_without_freezing(sess, folder, inputs, outputs, variables, backward_info = None):
+def export_tf_without_freezing(sess, folder, inputs, outputs, variables, trainable_variables, backward_info=None):
     output_names = [o.name for o in outputs]
     input_names = [i.name for i in inputs]
     variable_names = [v.name for v in variables]
+    trainable_variable_names = [v.name for v in trainable_variables]
 
     returned_variables = []
 
     for v in variables:
-        if v.dtype == tf.resource:
+        if isinstance(v, tf.Variable):
+            returned_variables.append(sess.run(v))
+        elif v.dtype == tf.resource:
             new_name = v.name[:-2] + "/Read/ReadVariableOp:0"
             returned_variables.append(sess.run(new_name))
         else:
@@ -69,19 +72,25 @@ def export_tf_without_freezing(sess, folder, inputs, outputs, variables, backwar
         tf.import_graph_def(graph_def, name="")
 
         out_variables = [g.get_tensor_by_name(name) for name in variable_names]
+        trainable_set = set(trainable_variable_names)
 
         assigns = []
+        train_assigns = []
         for i in range(len(out_variables)):
             v = out_variables[i]
             p = tf.placeholder(dtype=tf.float32, shape=returned_variables[i].shape, name=v.name.split(":")[0] + "_assign")
+            p = tf.cast(p, dtype=returned_variables[i].dtype)
             if v.dtype == tf.resource:
                 a = gen_resource_variable_ops.assign_variable_op(
                     v,
                     p)
             else:
                 a = tf.assign(v, p)
+            if v.name in trainable_set:
+                train_assigns.append(a)
             assigns.append(a)
         assign = tf.group(*assigns)
+        train_assign = tf.group(*train_assigns)
         with gfile.GFile(os.path.join(folder, "graph.pb"), "wb") as f:
             f.write(g.as_graph_def().SerializeToString())
 
@@ -95,7 +104,9 @@ def export_tf_without_freezing(sess, folder, inputs, outputs, variables, backwar
             save_variable_bigdl(variable_dict, folder + "/model.bin")
             meta["variables"] = variable_names
             meta["variable_path"] = folder + "/model.bin"
+            meta["trainable_variables"] = trainable_variable_names
             meta["assign_op"] = assign.name
+            meta["train_assign_op"] = train_assign.name
 
         if backward_info is not None:
             meta.update(backward_info)
@@ -127,7 +138,7 @@ def generate_backward_graph(graph_def, input_names,
         grads = [process_grad(grad, tensor, allow_non_differentiable)
                  for (grad, tensor) in zip(grads, variables_and_inputs)]
 
-        temp_tensor_names = _find_temp_tensors(grads, nodes)
+        temp_tensor_names = _find_temp_tensors(grads, nodes, input_names)
 
         grad_variable_names = [x.name for x in grads[0:len(variables)]]
         grad_input_names = [x.name for x in grads[len(variables):]]
@@ -244,7 +255,7 @@ def export_tf(sess, folder, inputs, outputs,
             grads = [process_grad(grad, tensor, allow_non_differentiable)
                      for (grad, tensor) in zip(grads, variables + inputs)]
 
-            temp_tensors = _find_temp_tensors(grads, nodes)
+            temp_tensors = _find_temp_tensors(grads, nodes, new_input_names)
 
             grad_variables = [x.name for x in grads[0:len(variables)]]
             grad_inputs = [x.name for x in grads[len(variables):]]
@@ -271,7 +282,8 @@ def export_tf(sess, folder, inputs, outputs,
     with open(os.path.join(folder, "graph_meta.json"), "w") as f:
         f.write(json.dumps(meta))
 
-def _find_temp_tensors(grads, forward_ops):
+
+def _find_temp_tensors(grads, forward_ops, input_names):
     '''
     find all the tensors that are used for computing grads and has been
     computed during forward
@@ -298,7 +310,7 @@ def _find_temp_tensors(grads, forward_ops):
             continue
         else:
             visited.add(tensor.name)
-            if tensor.op.type == "Placeholder":
+            if tensor.name in input_names:
                 continue
             if tensor.op.name in forward_ops:
                 temp_tensors.add(tensor.name)

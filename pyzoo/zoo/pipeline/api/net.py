@@ -295,7 +295,9 @@ class TFNet(Layer):
         input_names = [i.name for i in inputs]
         if variables is None:
             variables = tf.trainable_variables()
+        all_variables = tf.global_variables()
         variable_names = [v.name for v in variables]
+        all_variable_names = [v.name for v in all_variables]
         graph_def = sess.graph_def
 
         backward_info = None
@@ -315,8 +317,10 @@ class TFNet(Layer):
             tf.import_graph_def(graph_def, name="")
             input_tensors = [g.get_tensor_by_name(name) for name in input_names]
             output_tensors = [g.get_tensor_by_name(name) for name in output_names]
-            variables = [g.get_tensor_by_name(name) for name in variable_names]
-            export_tf_without_freezing(sess, folder, input_tensors, output_tensors, variables, backward_info)
+            variables = [g.get_tensor_by_name(name) for name in all_variable_names]
+            trainable_variables = [g.get_tensor_by_name(name) for name in variable_names]
+            export_tf_without_freezing(sess, folder, input_tensors, output_tensors,
+                                       variables, trainable_variables, backward_info)
 
     @staticmethod
     def from_session(sess, inputs, outputs, variables = None,
@@ -431,7 +435,8 @@ class TFOptimizer:
         self.export_dir = tempfile.mkdtemp()
         export_tf_without_freezing(self.sess, self.export_dir,
                                    inputs=self.inputs, outputs=grads + outputs,
-                                   variables=variables)
+                                   variables=tf.global_variables(),
+                                   trainable_variables=variables)
         self.training_helper_layer = TFTrainingHelper(self.export_dir)
 
         self.variable_placeholders = []

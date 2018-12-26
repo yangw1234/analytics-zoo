@@ -174,8 +174,8 @@ sess = tf.Session()
 saver = tf.train.Saver()
 saver.restore(sess, "/tmp/models/inception_v1.ckpt")
 
-from zoo.util.tf import export_tf
-export_tf(sess, "/tmp/models/tfnet", inputs=[images], outputs=[logits])
+from zoo.pipeline.api.net import TFNet
+TFNet.export_to_folder("/tmp/models/tfnet", sess, inputs=[images], outputs=[logits])
 ```
 
 In the above code, the `export_tf` utility function will frozen the TensorFlow graph, strip unused operation according to the inputs and outputs and save it to the specified directory along with the input/output tensor names. 

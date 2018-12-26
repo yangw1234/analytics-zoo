@@ -123,22 +123,24 @@ class TFNet(private val graphDef: TFGraphHolder,
     }
   }
 
-  private val weights = {
+  private val (allVariables, weights) = {
     if (graphMeta.variables.nonEmpty) {
       val m = File.load(graphMeta.variablePath).asInstanceOf[util.HashMap[String, JTensor]].asScala
-      graphMeta.variables.map(x => PythonBigDLKeras.ofFloat().toTensor(m(x)))
+      val name2tensor = graphMeta.variables.map(x =>
+        (x, PythonBigDLKeras.ofFloat().toTensor(m(x)))).toMap
+      (graphMeta.variables.map(name2tensor), graphMeta.trainableVariables.map(name2tensor))
     } else {
-      Array[Tensor[Float]]()
+      (Array[Tensor[Float]](), Array[Tensor[Float]]())
     }
   }
 
 
   private val gradWeights = {
-    graphMeta.variables.map(_ => Tensor[Float]())
+    graphMeta.trainableVariables.map(_ => Tensor[Float]())
   }
 
   private val gradWeightsBuffer = {
-    graphMeta.variables.map(_ => Tensor[Float]())
+    graphMeta.trainableVariables.map(_ => Tensor[Float]())
   }
 
 
@@ -173,20 +175,30 @@ class TFNet(private val graphDef: TFGraphHolder,
   @transient
   private[zoo] lazy val sess = {
     val sess = new Session(this.graph, config.map(_.toByte))
-    assignWeights(sess, weights)
     sess
   }
 
-  private def assignWeights(session: Session, weights: Array[Tensor[Float]]): Unit = {
+  @transient
+  private var allVariableAssigned = false
+
+  private def assignAllVariables() = {
+    assignWeights(sess, allVariables, graphMeta.variables, graphMeta.assignOp)
+    allVariableAssigned = true
+  }
+
+  private def assignWeights(session: Session,
+                            weights: Array[Tensor[Float]],
+                            variableNames: Array[String],
+                            assignOp: String): Unit = {
     if (graphMeta.variables.length > 0) {
       val runner = session.runner()
-      runner.addTarget(graphMeta.assignOp)
+      runner.addTarget(assignOp)
       val length = weights.length
       val tfWeights: Array[TTensor[_]] = new Array[TTensor[_]](length)
       var i = 0
       while (i < length) {
         val tfWeight = bigdl2Tf(weights(i), DataType.FLOAT)
-        val vName = graphMeta.variables(i)
+        val vName = variableNames(i)
         runner.feed(vName.substring(0, vName.length-2) + "_assign", tfWeight)
         tfWeights(i) = tfWeight
         i += 1
@@ -201,7 +213,7 @@ class TFNet(private val graphDef: TFGraphHolder,
   }
 
   private[zoo] def assignWeights(): Unit = {
-    assignWeights(sess, weights)
+    assignWeights(sess, weights, graphMeta.trainableVariables, graphMeta.trainAssignOp)
   }
 
   @transient
@@ -215,8 +227,10 @@ class TFNet(private val graphDef: TFGraphHolder,
   override def updateOutput(input: Activity): Activity = {
     try {
 
-      if (isTraining()) {
+      if (allVariableAssigned && isTraining()) {
         assignWeights()
+      } else if (!allVariableAssigned) {
+        assignAllVariables()
       }
 
       val runner = sess.runner()
@@ -293,66 +307,65 @@ class TFNet(private val graphDef: TFGraphHolder,
         throw new Exception("TFNet is not in training phase, please call TFNet.training()")
       }
 
-      if (graphMeta.variables.isEmpty) {
-        generateZeroGrad(input)
-      } else {
-
-        val runner = sess.runner()
-
-        require(activityLength(input) == inputTypes.length,
-          s"require ${inputTypes.length} inputs, but ${activityLength(input)} given. " +
-            s"The inputs are ${inputNames.toSeq}")
-
-        val gradOutputTFTensors = new Array[TTensor[_]](outputNames.length)
-
-        activity2TFTensors(gradOutput, outputTypes, gradOutputTFTensors)
-
-        // feed inputs
-        inputNames.zipWithIndex.foreach { case (name, idx) =>
-          runner.feed(name, inputTFTensors(idx))
-        }
-
-        // feed gradOutputs
-        outputNames.map(addGrad).zipWithIndex.foreach { case (name, idx) =>
-          runner.feed(name, gradOutputTFTensors(idx))
-        }
-
-        // feed temp tensors fetched during forward
-        val tempTensorNames = graphMeta.tempTensors.get
-        tempTensorNames.zipWithIndex.foreach{ case (name, idx) =>
-          runner.feed(name, tempTFTensors(idx))
-        }
-
-        // fetch grad inputs
-        val gradInputNames = graphMeta.gradInputs.get
-        gradInputNames.foreach(runner.fetch)
-
-        // fetch grad weights
-        val gradVariableNames = graphMeta.gradVariables.get
-        gradVariableNames.foreach(runner.fetch)
-
-        val fetches = runner.run().asScala
-        val (i, v) = fetches.splitAt(gradInputNames.length)
-
-        v.map(_.asInstanceOf[TTensor[Float]])
-          .zipWithIndex.foreach(x => gradWeightTFTensors(x._2) = x._1)
-
-        i.zipWithIndex.foreach { case (t, idx) =>
-          tf2bigdl(t.asInstanceOf[TTensor[Float]], getGradInput(idx + 1))
-        }
-
-        // clean up two feeds
-        emptyTFTensorArray(inputTFTensors)
-        emptyTFTensorArray(gradOutputTFTensors)
-
-        // clean up temp tensors
-        emptyTFTensorArray(tempTFTensors)
-
-        // clean up fetched grad inputs
-        emptyTFTensorArray(i)
-
-        // grad weights will be cleaned up after acc
+      if (graphMeta.gradVariables.isEmpty) {
+        throw new Exception("generateBackward must be set to True for TFNet for training")
       }
+
+      val runner = sess.runner()
+
+      require(activityLength(input) == inputTypes.length,
+        s"require ${inputTypes.length} inputs, but ${activityLength(input)} given. " +
+          s"The inputs are ${inputNames.toSeq}")
+
+      val gradOutputTFTensors = new Array[TTensor[_]](outputNames.length)
+
+      activity2TFTensors(gradOutput, outputTypes, gradOutputTFTensors)
+
+      // feed inputs
+      inputNames.zipWithIndex.foreach { case (name, idx) =>
+        runner.feed(name, inputTFTensors(idx))
+      }
+
+      // feed gradOutputs
+      outputNames.map(addGrad).zipWithIndex.foreach { case (name, idx) =>
+        runner.feed(name, gradOutputTFTensors(idx))
+      }
+
+      // feed temp tensors fetched during forward
+      val tempTensorNames = graphMeta.tempTensors.get
+      tempTensorNames.zipWithIndex.foreach{ case (name, idx) =>
+        runner.feed(name, tempTFTensors(idx))
+      }
+
+      // fetch grad inputs
+      val gradInputNames = graphMeta.gradInputs.get
+      gradInputNames.foreach(runner.fetch)
+
+      // fetch grad weights
+      val gradVariableNames = graphMeta.gradVariables.get
+      gradVariableNames.foreach(runner.fetch)
+
+      val fetches = runner.run().asScala
+      val (i, v) = fetches.splitAt(gradInputNames.length)
+
+      v.map(_.asInstanceOf[TTensor[Float]])
+        .zipWithIndex.foreach(x => gradWeightTFTensors(x._2) = x._1)
+
+      i.zipWithIndex.foreach { case (t, idx) =>
+        tf2bigdl(t.asInstanceOf[TTensor[Float]], getGradInput(idx + 1))
+      }
+
+      // clean up two feeds
+      emptyTFTensorArray(inputTFTensors)
+      emptyTFTensorArray(gradOutputTFTensors)
+
+      // clean up temp tensors
+      emptyTFTensorArray(tempTFTensors)
+
+      // clean up fetched grad inputs
+      emptyTFTensorArray(i)
+
+      // grad weights will be cleaned up after acc
       gradInput
     } catch {
       case ex: Throwable =>
