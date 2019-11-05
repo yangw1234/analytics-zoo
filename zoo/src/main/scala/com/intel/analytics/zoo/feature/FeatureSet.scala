@@ -220,7 +220,7 @@ private[zoo] class DistributedDataSetWrapper[T: ClassTag](featureSet: Distribute
  */
 // T is the returning value type. like ByteRecord
 class CachedDistributedFeatureSet[T: ClassTag]
-(buffer: RDD[ArrayLike[T]])
+(buffer: RDD[ArrayLike[T]], sequentialOrder: Boolean = false)
   extends DistributedFeatureSet[T]{
 
   protected lazy val count: Long = buffer.mapPartitions(iter => {
@@ -230,24 +230,37 @@ class CachedDistributedFeatureSet[T: ClassTag]
     Iterator.single(array.length)
   }).reduce(_ + _)
 
-  protected var indexes: RDD[Array[Int]] = buffer.mapPartitions(iter => {
-    Iterator.single[Array[Int]]((0 until iter.next().length).toArray[Int])
+  protected var indexes: RDD[(Array[Int], AtomicInteger)] = buffer.mapPartitions(iter => {
+    Iterator.single[(Array[Int], AtomicInteger)](((0 until iter.next().length).toArray[Int],
+      new AtomicInteger(0)))
   }).setName(s"origin index of ${buffer.name}").cache()
+
+
+  protected var offsets: RDD[AtomicInteger] = buffer.mapPartitions(iter => {
+    Iterator.single[AtomicInteger](new AtomicInteger(0))
+  }).setName(s"offsets of ${buffer.name}")
 
 
   override def data(train: Boolean): RDD[T] = {
     val _train = train
+    val _seq = sequentialOrder
     buffer.zipPartitions(indexes)((dataIter, indexIter) => {
-      val indexes = indexIter.next()
-      val indexOffset = math.max(1, indexes.length)
+      val (indexes, seqOffset) = indexIter.next()
+
+
+      val maxOffset = math.max(1, indexes.length)
       val localData = dataIter.next()
-      val offset = if (_train) {
-        RandomGenerator.RNG.uniform(0, indexOffset).toInt
+      val offset = if (_train && !_seq) {
+        RandomGenerator.RNG.uniform(0, maxOffset).toInt
+      } else if (_train && _seq) {
+        seqOffset.get()
       } else {
         0
       }
+      seqOffset.set(offset)
+
       new Iterator[T] {
-        private val _offset = new AtomicInteger(offset)
+        private val _offset = seqOffset
 
         override def hasNext: Boolean = {
           if (_train) true else _offset.get() < localData.length
@@ -255,6 +268,14 @@ class CachedDistributedFeatureSet[T: ClassTag]
 
         override def next(): T = {
           val i = _offset.getAndIncrement()
+          if (i >= localData.length) {
+            this.synchronized {
+              if (i >= localData.length) {
+                val value = _offset.get()
+                _offset.set(value % localData.length)
+              }
+            }
+          }
           if (_train) {
             // indexes is an Array, we should improve this
             // as the maximum length is limited by Int.max
@@ -274,10 +295,13 @@ class CachedDistributedFeatureSet[T: ClassTag]
   override def size(): Long = count
 
   override def shuffle(): Unit = {
-    indexes.unpersist()
-    indexes = buffer.mapPartitions(iter => {
-      Iterator.single(RandomGenerator.shuffle((0 until iter.next().length).toArray))
-    }).setName(s"shuffled index of ${buffer.name}").cache()
+    if (!sequentialOrder) {
+      indexes.unpersist()
+      indexes = buffer.mapPartitions(iter => {
+        Iterator.single((RandomGenerator.shuffle((0 until iter.next().length).toArray),
+          new AtomicInteger(0)))
+      }).setName(s"shuffled index of ${buffer.name}").cache()
+    }
   }
 
   override def originRDD(): RDD[_] = buffer
@@ -389,12 +413,12 @@ class DiskFeatureSet[T: ClassTag]
 }
 
 object DRAMFeatureSet {
-  def rdd[T: ClassTag](data: RDD[T]): DistributedFeatureSet[T] = {
+  def rdd[T: ClassTag](data: RDD[T], sequentialOrder: Boolean = false): DistributedFeatureSet[T] = {
     val arrayLikeRDD = data.mapPartitions(iter => {
       Iterator.single(new ArrayLikeWrapper(iter.toArray))
     }).setName(s"cached feature set: ${data.name} in DRAM" )
       .cache().asInstanceOf[RDD[ArrayLike[T]]]
-    new CachedDistributedFeatureSet[T](arrayLikeRDD)
+    new CachedDistributedFeatureSet[T](arrayLikeRDD, sequentialOrder)
   }
 }
 
