@@ -621,7 +621,7 @@ class TFOptimizer:
         """
         self.estimator.set_l2_norm_gradient_clipping(clip_norm)
 
-    def optimize(self, end_trigger=None, checkpoint_trigger=None):
+    def optimize(self, end_trigger=None, checkpoint_trigger=None, feature_size=2):
         """
         Run the training loop of the this optimizer
         :param end_trigger: BigDL's Trigger to indicate when to stop the training.
@@ -640,7 +640,7 @@ class TFOptimizer:
                                  checkpoint_trigger=checkpoint_trigger,
                                  validation_set=self.val_rdd,
                                  validation_method=self.tf_model.val_methods,
-                                 batch_size=self.batch_size)
+                                 batch_size=self.batch_size, feature_size=feature_size)
         else:
             self.estimator.train(train_set=self.training_rdd,
                                  criterion=IdentityCriterion(),

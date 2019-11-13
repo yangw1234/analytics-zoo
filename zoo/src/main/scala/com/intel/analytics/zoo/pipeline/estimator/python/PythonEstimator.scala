@@ -19,8 +19,9 @@ package com.intel.analytics.zoo.pipeline.estimator.python
 import java.util.{List => JList}
 
 import com.intel.analytics.bigdl.{Criterion, Module}
-import com.intel.analytics.bigdl.dataset.{Sample, SampleToMiniBatch}
+import com.intel.analytics.bigdl.dataset.{PaddingParam, Sample, SampleToMiniBatch}
 import com.intel.analytics.bigdl.optim.{OptimMethod, Trigger, ValidationMethod, ValidationResult}
+import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.transform.vision.image.{ImageFeature, ImageFeatureToMiniBatch}
 import com.intel.analytics.zoo.common.PythonZoo
@@ -73,9 +74,16 @@ class PythonEstimator[T: ClassTag](implicit ev: TensorNumeric[T]) extends Python
                      checkPointTrigger: Trigger = null,
                      validationSet: FeatureSet[Sample[T]] = null,
                      validationMethod: JList[ValidationMethod[T]] = null,
-                     batchSize: Int)
+                     batchSize: Int, featureSize: Int)
   : estimator.type = {
-    val sample2batch = SampleToMiniBatch(batchSize)
+    val paddingTensor = Tensor[T](1).fill(ev.fromType(-1.0))
+    val widePaddingTensor = Tensor[T](1).fill(ev.fromType(0.0))
+    val paddingArray = Array.fill[Tensor[T]](featureSize-1)(paddingTensor) ++
+      Array(widePaddingTensor)
+    val featurePaddingParam = PaddingParam[T](Some(paddingArray))
+
+    val sample2batch = SampleToMiniBatch(batchSize,
+      featurePaddingParam = Some(featurePaddingParam))
     val trainMiniBatch = trainSet -> sample2batch
     val validationMiniBatch = if (validationSet != null) {
       validationSet -> sample2batch

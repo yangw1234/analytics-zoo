@@ -57,7 +57,7 @@ class Estimator(JavaValue):
         callBigDlFunc(self.bigdl_type, "setGradientClippingByL2Norm", self.value, clip_norm)
 
     def train(self, train_set, criterion, end_trigger=None, checkpoint_trigger=None,
-              validation_set=None, validation_method=None, batch_size=32):
+              validation_set=None, validation_method=None, batch_size=32, feature_size=2):
         """
         Train model with provided trainSet and criterion.
         The training will end until the endTrigger is triggered.
@@ -75,7 +75,7 @@ class Estimator(JavaValue):
         """
         callBigDlFunc(self.bigdl_type, "estimatorTrain", self.value, train_set,
                       criterion, end_trigger, checkpoint_trigger, validation_set,
-                      validation_method, batch_size)
+                      validation_method, batch_size, feature_size)
 
     def train_imagefeature(self, train_set, criterion, end_trigger=None, checkpoint_trigger=None,
                            validation_set=None, validation_method=None, batch_size=32):
