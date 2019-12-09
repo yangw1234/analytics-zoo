@@ -23,7 +23,7 @@ import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.utils.T
 import com.intel.analytics.zoo.pipeline.api.Predictable
 import org.slf4j.LoggerFactory
-import org.tensorflow.framework.{GraphDef, MetaGraphDef}
+import org.tensorflow.framework.{GraphDef, MetaGraphDef, VariableDef}
 import org.tensorflow.op.Ops
 import org.tensorflow.op.core.Placeholder
 import org.tensorflow.{DataType, SavedModelBundle}
@@ -33,10 +33,10 @@ import scala.reflect.ClassTag
 
 private[zoo] class TFNetForInference(graphRunner: GraphRunner,
                                     inputs: Array[String],
-                                    inputTypes: Array[Int],
+                                    inputTypes: Array[DataType],
                                     outputs: Array[String],
                                     variables: Array[String],
-                                    variableTypes: Array[Int],
+                                    variableTypes: Array[DataType],
                                     variableAssignPlaceholders: Array[String],
                                     assignVariableOps: Array[String],
                                     initWeights: Array[Tensor[Float]],
@@ -123,7 +123,7 @@ private[zoo] class TFNetForInference(graphRunner: GraphRunner,
   @transient
   private lazy val variableInited = {
     setVariableIntoTF(weights, variableAssignPlaceholders,
-      variableTypes.map(NetUtils.tfenum2datatype), assignVariableOps)
+      variableTypes, assignVariableOps)
     true
   }
 
@@ -143,7 +143,7 @@ private[zoo] class TFNetForInference(graphRunner: GraphRunner,
 
       val feeds = NetUtils.activity2VectorBuilder(input)
 
-      val types = inputTypes.toVector.map(NetUtils.tfenum2datatype)
+      val types = inputTypes.toVector
 
       graphRunner.run(
         input = feeds.result(),
@@ -181,15 +181,9 @@ object TFNetForInference {
   import scala.collection.JavaConverters._
 
   val frameworkDataType2Class = Map(
-    org.tensorflow.framework.DataType.DT_FLOAT -> classOf[java.lang.Float],
-    org.tensorflow.framework.DataType.DT_INT32 -> classOf[java.lang.Integer],
-    org.tensorflow.framework.DataType.DT_INT64 -> classOf[java.lang.Long]
-  )
-
-  val frameworkDataType2DataType = Map(
-    org.tensorflow.framework.DataType.DT_FLOAT -> org.tensorflow.DataType.FLOAT,
-    org.tensorflow.framework.DataType.DT_INT32 -> org.tensorflow.DataType.INT32,
-    org.tensorflow.framework.DataType.DT_INT64 -> org.tensorflow.DataType.INT64
+    org.tensorflow.DataType.FLOAT -> classOf[java.lang.Float],
+    org.tensorflow.DataType.INT32 -> classOf[java.lang.Integer],
+    org.tensorflow.DataType.INT64 -> classOf[java.lang.Long]
   )
 
   /*
@@ -220,6 +214,8 @@ object TFNetForInference {
                      outputs: Option[Array[String]],
                      sessionConfig: Array[Byte]): TFNetForInference = {
 
+    val t1 = System.nanoTime()
+
     if (tag.isEmpty) {
       logger.warn(s"Loading TensorFlow SavedModel: " +
         s"SavedModel tag is not defined, using <$DEFAULT_TAG>")
@@ -228,6 +224,14 @@ object TFNetForInference {
 
     val metaGraphDef = MetaGraphDef.parseFrom(savedModelBundle.metaGraphDef())
     val initOp = getInitOp(metaGraphDef)
+
+
+    if metaGraphDef.containsCollectionDef("variables")
+    val vs = metaGraphDef.getCollectionDefOrThrow("variables")
+      .getBytesList.getValueList.asScala.map { bytes =>
+      VariableDef.parseFrom(bytes)
+    }
+    println(vs)
 
     val (inputNames, outputNames) = if (!(inputs.isDefined && outputs.isDefined)) {
       if (signature.isEmpty) {
@@ -246,27 +250,30 @@ object TFNetForInference {
     val graph = savedModelBundle.graph()
     val ops = Ops.create(graph).withSubScope("analytics-zoo")
 
-    val variableTypes = Set("Variable", "VariableV2", "VarHandleOp")
     val graphBytes = graph.toGraphDef
 
     val graphDef = GraphDef.parseFrom(graphBytes)
 
+    val t2 = System.nanoTime()
+
     // the following map function add a read operation, an assign operation
     // and a placeholder for each variable in the graph
-    val newOps = graphDef.getNodeList.asScala.filter{ node =>
-      variableTypes(node.getOp)
-    }.map{ x =>
-      val name = x.getName
-      val dataType = x.getAttrMap.get("dtype").getType
-      val opType = x.getOp
-      val operation = graph.operation(name)
+//    val variables = graphDef.getNodeList.asScala.filter { node =>
+//      variableTypes(node.getOp)
+//    }
+    val newOps = vs.map { x =>
+      val name = x.getVariableName
+      val isResource = x.getIsResource
+      val snapshotName = x.getSnapshotName
+      val variableOp = graph.operation(name.substring(0, name.length - 2))
+      val operationOutput = variableOp.output(0)
+      val snapshotOp = graph.operation(snapshotName.substring(0, snapshotName.length - 2))
+      val snapshotTensor = snapshotOp.output(0)
+      val dataType = snapshotTensor.dataType()
       val dataTypeClass = frameworkDataType2Class(dataType)
-      val operationOutput = operation.output(0)
-      if (opType == "VarHandleOp") {
-        val readVariable = ops.readVariableOp(operationOutput, dataTypeClass)
-        val floatVariable = ops.dtypes.cast(readVariable, classOf[java.lang.Float])
-        val placeholder = ops.placeholder(dataTypeClass,
-          Placeholder.shape(readVariable.asOutput().shape()))
+      if (isResource) {
+        val floatVariable = ops.dtypes.cast(snapshotTensor, classOf[java.lang.Float])
+        val placeholder = ops.placeholder(dataTypeClass, Placeholder.shape(snapshotTensor.shape()))
 
         // do it manually to get a reference of the op and get the op name
         val builder = graph.opBuilder("AssignVariableOp",
@@ -276,10 +283,9 @@ object TFNetForInference {
         val assignOp = builder.build()
         (floatVariable.asOutput().op().name(),
           placeholder.asOutput().op().name(), assignOp.name(),
-          dataType, operationOutput.shape(), operation.name())
+          dataType, operationOutput.shape(), variableOp.name())
       } else {
-        val readVariable = operationOutput
-        val floatVariable = ops.dtypes.cast(readVariable, classOf[java.lang.Float])
+        val floatVariable = ops.dtypes.cast(snapshotTensor, classOf[java.lang.Float])
         val placeholder = ops.placeholder(dataTypeClass,
           Placeholder.shape(operationOutput.shape()))
 
@@ -291,17 +297,17 @@ object TFNetForInference {
         val assignOp = builder.build()
         (floatVariable.asOutput().op().name(),
           placeholder.asOutput().op().name(), assignOp.name(),
-          dataType, operationOutput.shape(), operation.name())
+          dataType, operationOutput.shape(), variableOp.name())
       }
     }
+
+    val t3 = System.nanoTime()
 
     val readVariableNames = newOps.map(_._1)
     val placeholderNames = newOps.map(_._2)
     val assign = newOps.map(_._3)
     val dataTypes = newOps.map(_._4)
     val dataShapes = newOps.map(x => (x._5, x._6))
-
-    val graphdef = GraphDef.parseFrom(graph.toGraphDef)
 
     val graphRunner = new GraphRunner(
       graph.toGraphDef,
@@ -337,6 +343,17 @@ object TFNetForInference {
       }
     }.toArray
 
+//    val runner = session.runner()
+//    readVariableNames.foreach(runner.fetch)
+//    val results = runner.run()
+//
+//    val weights = results.asScala.map { tfTensor =>
+//      val bigdlTensor = Tensor[Float]()
+//      GraphRunner.tf2bigdl(tfTensor, bigdlTensor)
+//        tfTensor.close()
+//        bigdlTensor
+//    }.toArray
+
     val inputTypes = inputNames.map { name =>
       val opAndPort = name.split(":")
       val op = opAndPort.head
@@ -345,10 +362,14 @@ object TFNetForInference {
       if (opRef == null) {
         throw new IllegalArgumentException(s"Cannot find input op <$name>")
       }
-      NetUtils.tfdatatype2enum(opRef.output(port.toInt).dataType())
+      opRef.output(port.toInt).dataType()
     }
 
+    val t4 = System.nanoTime()
 
+    println(s"loading file time ${(t2-t1)/1e9}s")
+    println(s"create new ops time ${(t3-t2)/1e9}s")
+    println(s"reading variables time ${(t4-t3)/1e9}s")
 
     // clean up native resources
     savedModelBundle.close()
@@ -358,7 +379,7 @@ object TFNetForInference {
       inputTypes = inputTypes,
       outputs = outputNames,
       variables = readVariableNames.toArray,
-      variableTypes = dataTypes.map(_.getNumber).toArray,
+      variableTypes = dataTypes.toArray,
       variableAssignPlaceholders = placeholderNames.toArray,
       assignVariableOps = assign.toArray,
       initWeights = weights, initOp)
