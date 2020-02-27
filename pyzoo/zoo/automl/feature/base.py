@@ -31,26 +31,25 @@ class BaseTransformer(ABC):
         """
         raise NotImplementedError()
 
+
+class InversibleTransformer(BaseTransformer):
+    """
+        Abstract class for transformers that can be inverse transformed.
+    """
+
+    @abstractmethod
     def inverse_transform(self, target):
         """
         inverse transform target value into origin magnitude
         :param target: target to be inverse transformed
         :return:
         """
-        return target
-
-    @abstractmethod
-    def need_inverse(self):
-        """
-        indicate if the transformer needs to be inverse_transformed
-        :return: True or False
-        """
         raise NotImplementedError()
 
 
-class BaseEstimator(BaseTransformer):
+class BaseEstimator(InversibleTransformer):
     """
-        Abstract Base class for basic estimators.
+        Abstract class for basic estimators.
     """
     @abstractmethod
     def fit(self, inputs):
@@ -81,109 +80,3 @@ class BaseEstimator(BaseTransformer):
         :return:
         """
         raise NotImplementedError()
-
-    def need_inverse(self):
-        """
-        indicate if the transformer needs to be inverse_transformed.
-        """
-        return True
-
-
-class PreRollTransformer(BaseTransformer):
-    """
-    base class for pre_roll transformers.
-    """
-
-    def transform(self, inputs, transform_cols=None, is_train=False):
-        """
-        fit data with the input
-        :param inputs: input data frame
-        :param transform_cols: columns to be transformed.
-        :param is_train: indicate whether in training mode
-        :return:
-        """
-        raise NotImplementedError()
-
-    def inverse_transform(self, target):
-        """
-        inverse transform target value into origin magnitude
-        :param target: target to be inverse transformed
-        :return:
-        """
-        return target
-
-    def save(self, file_path):
-        """
-        save the status of Transformer
-        :param file_path
-        :return:
-        """
-        pass
-
-    def restore(self, file_path):
-        """
-        restore the status saved
-        :param file_path
-        :return:
-        """
-        pass
-
-
-class RollTransformer(BaseTransformer):
-    """
-    base class for roll transformers.
-    """
-    def __init__(self, horizon=1):
-        """
-        :param horizon: an int or a range or a list
-        """
-        self.horizon = horizon
-
-    def transform(self, inputs, past_seq_len=2, is_train=False):
-        """
-        fit data with the input
-        :param inputs: numpy array
-        :param past_seq_len: the look back sequence length that need to unrolled
-        :param is_train: indicate whether in training mode
-        :return:
-        """
-        raise NotImplementedError()
-
-
-class PostRollTransformer(BaseTransformer):
-    """
-    base class for post_roll transformers.
-    """
-
-    def transform(self, inputs, is_train=False):
-        """
-        fit data with the input
-        :param inputs: (x, y)
-        :param is_train: indicate whether in training mode
-        :return: (x,y)
-        """
-        raise NotImplementedError()
-
-    def inverse_transform(self, target):
-        """
-        inverse transform target value into origin magnitude
-        :param target: target to be inverse transformed
-        :return:
-        """
-        return target
-
-    def save(self, file_path):
-        """
-        save the status of Transformer
-        :param file_path
-        :return:
-        """
-        pass
-
-    def restore(self, file_path):
-        """
-        restore the status saved
-        :param file_path
-        :return:
-        """
-        pass

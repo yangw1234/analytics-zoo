@@ -15,53 +15,80 @@
 #
 import os
 
-from zoo.automl.feature.base import BaseEstimator, BaseTransformer
+from zoo.automl.feature.base import BaseEstimator, InversibleTransformer, BaseTransformer
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.externals import joblib
-from zoo.automl.feature.feature_utils import check_is_fitted
+import numpy as np
+from zoo.automl.feature.feature_utils import check_input_array
+from sklearn.exceptions import NotFittedError
 
 
-class MinMaxStandardizer(BaseEstimator):
+class SklearnScaler(BaseEstimator):
     """
-    min max scaler
+    Transform features by scaling each feature to a given range.
     """
 
-    def __init__(self):
-        self.scaler = MinMaxScaler()
+    def __init__(self, feature_range=(0, 1), copy=True):
+        self.scaler = MinMaxScaler(feature_range, copy)
         self.scaler_filename = "scaler.save"
+        self.fitted = False
 
     def fit(self, inputs):
         """
-        :param inputs: numpy array
-        :return:
+        compute the minimum and maximum to be used for later scaling
+        :param inputs: array-like of shape (n_samples, n_features)
+            The data used to compute the per-feature minimum and maximum
+            used for later scaling along the features axis.
+        :return: self. Transformer instance.
         """
+        check_input_array(inputs)
         self.scaler.fit(inputs)
+        self.fitted = True
         return self
 
-    def transform(self, inputs, transform_cols=None):
+    def transform(self, inputs, transform_cols='all'):
         """
-        inplace standard scale transform_cols of input data frame.
-        :param inputs: input numpy array
-        :param transform_cols: columns to be transformed.
-        :param is_train: indicate whether in training mode
-        :return:
+        scale features of inputs
+        :param inputs: array-like of shape (n_samples, n_features).
+            Input data that will be transformed.
+        :param transform_cols: columns to be transformed. Not used in MinMaxScale.
+        :return: array-like of shape (n_samples, n_features).
+            Transformed data
         """
+        msg = ("This %s instance is not fitted yet. Call 'fit' with "
+               "appropriate arguments before using this method.")
+        if not self.fitted:
+            raise NotFittedError(msg % type(self).__name__)
         self.scaler.transform(inputs)
-        if is_train:
-            self.scaler.fit(inputs[transform_cols].values)
-        else:
-            self.scaler.transform(inputs[transform_cols].values)
 
     def inverse_transform(self, target, transform_cols=None):
         """
-        since the scaler may include the transform of extra feature columns, and the inverse target
-        only include target columns. Maybe need to extract the target scale information and inverse
-        transform by hand.
-        :param target: target to be inverse transformed
-        :return:
+        Undo the scaling of X according to feature_range.
+        :param target: array-like of shape (n_samples, target_columns)
+            Input data that will be transformed. It cannot be sparse.
+        :param transform_cols: number of columns need to be transformed. If not None, we only apply inverse transform
+            on the first transform_cols of target array.
+        :return: array-like of shape (n_samples, target_columns)
+            Transformed data.
         """
-        self.scaler.inverse_transform(target)
+        assert self.scaler.scale_ is not None and len(self.scaler.scale_) > 0
+        scaler_dim = len(self.scaler.scale_)
+        check_input_array(target)
+        if target.ndim > 2:
+            raise ValueError("Expected input array has less than 3 dimensions. Got %s" % target.ndim)
+        if transform_cols is not None:
+            transform_cols = min(transform_cols, target.shape[1])
+        if target.ndim == 2 \
+                and (transform_cols is None and target.shape[1] > scaler_dim) \
+                or (transform_cols > scaler_dim):
+            raise ValueError("The input array has larger columns than the fitted scaler.")
+        dummy_data = np.zeros(shape=(len(target), scaler_dim))
+        valid_col_num = target.shape[1]
+        dummy_data[, :valid_col_num] = target
+        unscaled_data = self.scaler.inverse_transform(dummy_data)
+        unscaled_data = unscaled_data[:valid_col_num]
+        return unscaled_data
 
     def save(self, file_path):
         """
@@ -80,55 +107,19 @@ class MinMaxStandardizer(BaseEstimator):
         self.scaler = joblib.load(os.path.join(file_path, self.scaler_filename))
 
 
-class StandardNormalizer(PreRollTransformer):
-    """
-    standard scalar
-    """
+class MinMaxScale(SklearnScaler):
     def __init__(self):
-        self.scaler = StandardScaler()
-        self.scaler_filename = "scaler.save"
-
-    def transform(self, inputs, transform_cols=None, is_train=False):
-        """
-        inplace standard scale transform_cols of input data frame.
-        :param inputs: input data frame
-        :param transform_cols: columns to be transformed.
-        :param is_train: indicate whether in training mode
-        :return:
-        """
-        if is_train:
-            self.scaler.fit(inputs[transform_cols].values)
-        else:
-            self.scaler.transform(inputs[transform_cols].values)
-
-    def inverse_transform(self, target):
-        """
-        since the scaler may include the transform of extra feature columns, and the inverse target
-        only include target columns. Maybe need to extract the target scale information and inverse
-        transform by hand.
-        :param target: target to be inverse transformed
-        :return:
-        """
-        self.scaler.inverse_transform(target)
-
-    def save(self, file_path):
-        """
-        save scaler into file
-        :param file_path
-        :return:
-        """
-        joblib.dump(self.scaler, os.path.join(file_path, self.scaler_filename))
-
-    def restore(self, file_path):
-        """
-        restore scaler from file
-        :param file_path
-        :return:
-        """
-        self.scaler = joblib.load(os.path.join(file_path, self.scaler_filename))
+        self.scaler = MinMaxScaler()
+        super(MinMaxScale, self).__init__()
 
 
-class FeatureGenerator(PreRollTransformer):
+class StandardScale(SklearnScaler):
+    def __init__(self):
+        self.scaler = StandardScaler
+        super(StandardScale, self).__init__()
+
+
+class FeatureGenerator(BaseTransformer):
     """
     generate features for input data frame
     """

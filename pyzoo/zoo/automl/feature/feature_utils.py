@@ -1,6 +1,6 @@
 from zoo.automl.feature.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
-
+import numpy as np
 
 def check_is_fitted(estimator, attributes):
     """
@@ -20,3 +20,21 @@ def check_is_fitted(estimator, attributes):
 
     if not all([hasattr(estimator, attr) for attr in attributes]):
         raise NotFittedError(msg % {'name': type(estimator).__name__})
+
+
+def check_input_array(inputs):
+    """
+    check if the inputs is array-like and return numpy array inputs
+    :param inputs:
+    :return:
+    """
+    if inputs is None:
+        raise ValueError("Got None input.")
+    if not hasattr(inputs, '__len__') and not hasattr(inputs, 'shape'):
+        if hasattr(inputs, '__array__'):
+            inputs = np.asarray(inputs)
+        else:
+            raise TypeError("Expected array-like input, got %s" % type(inputs))
+    if len(inputs) == 0:
+        raise ValueError("Input is an empty array.")
+    return inputs
