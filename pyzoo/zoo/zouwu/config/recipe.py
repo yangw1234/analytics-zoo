@@ -524,7 +524,7 @@ class RandomRecipe(Recipe):
             num_rand_samples=1,
             look_back=2,
             epochs=5,
-            reward_metric=-0.05,
+            reward_metric=0.05,
             training_iteration=10):
         """
         :param num_rand_samples: number of hyper-param configurations sampled randomly
@@ -576,7 +576,7 @@ class BayesRecipe(Recipe):
             num_samples=1,
             look_back=2,
             epochs=5,
-            reward_metric=-0.05,
+            reward_metric=0.05,
             training_iteration=5):
         """
         Constructor

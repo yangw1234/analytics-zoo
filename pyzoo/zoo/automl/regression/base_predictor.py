@@ -175,9 +175,13 @@ class BasePredictor(object):
                                        name=self.name,
                                        remote_dir=remote_dir,
                                        )
+        num_samples = recipe.runtime_params()["num_samples"]
+        training_iteration = recipe.runtime_params()["training_iteration"]
+        threshold = recipe.runtime_params()["reward_metric"]
+
         searcher.compile(data={'df': input_df, 'val_df': validation_df},
                          model_create_func=model_fn,
-                         recipe=recipe,
+                         search_space=recipe.search_space(),
                          search_alg=self.search_alg,
                          search_alg_params=self.search_alg_params,
                          scheduler=self.scheduler,
@@ -185,6 +189,10 @@ class BasePredictor(object):
                          feature_transformers=ft,
                          metric=metric,
                          mc=mc,
+                         num_samples=num_samples,
+                         training_iteration=training_iteration,
+                         threshold=threshold,
+
                          )
         # searcher.test_run()
         analysis = searcher.run()

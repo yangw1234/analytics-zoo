@@ -89,11 +89,18 @@ def prepare_searcher(data,
                                                  logs_dir="~/zoo_automl_logs",
                                                  resources_per_trial={"cpu": 2},
                                                  name=name)
+
+    num_samples = recipe.runtime_params()["num_samples"]
+    training_iteration = recipe.runtime_params()["training_iteration"]
+    threshold = recipe.runtime_params()["reward_metric"]
     searcher.compile(data=data,
                      model_create_func=modelBuilder,
-                     recipe=recipe,
+                     search_space=recipe.search_space(),
                      feature_transformers=feature_transformer,
-                     metric=metric)
+                     metric=metric,
+                     num_samples=num_samples,
+                     training_iteration=training_iteration,
+                     threshold=threshold)
     return searcher
 
 
