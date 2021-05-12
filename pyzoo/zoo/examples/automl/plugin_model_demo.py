@@ -50,25 +50,12 @@ def optimizer_creator(model, config):
 def loss_creator(config):
     return nn.MSELoss()
 
-
-class SimpleRecipe(Recipe):
-    def __init__(self):
-        super().__init__()
-        self.num_samples = 2
-        self.training_iteration = 20
-
-    def search_space(self):
-        return {
-            "lr": hp.uniform(0.01, 0.02),
-            "batch_size": hp.choice([16, 32, 64])
-        }
-
-
 def get_data():
     def get_linear_data(a, b, size):
         x = np.arange(0, 10, 10 / size, dtype=np.float32)
-        y = a*x + b
+        y = a * x + b
         return x, y
+
     train_x, train_y = get_linear_data(2, 5, 1000)
     val_x, val_y = get_linear_data(2, 5, 400)
     data = {'x': train_x, 'y': train_y, 'val_x': val_x, 'val_y': val_y}
@@ -92,7 +79,12 @@ if __name__ == "__main__":
     data = get_data()
     searcher.compile(data=data,
                      model_create_func=modelBuilder,
-                     recipe=SimpleRecipe())
+                     search_space={
+                         "lr": hp.uniform(0.01, 0.02),
+                         "batch_size": hp.choice([16, 32, 64])
+                     },
+                     num_samples=2,
+                     training_iteration=20)
 
     searcher.run()
     best_trials = searcher.get_best_trials(k=1)
